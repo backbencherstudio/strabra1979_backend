@@ -12,8 +12,6 @@ import { LoggerMiddleware } from './common/middleware/logger.middleware';
 import { AuthModule } from './modules/auth/auth.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { MailModule } from './mail/mail.module';
-import { PaymentModule } from './modules/payment/payment.module';
-import { RepositoryModule } from './common/repository/repository.module';
 
 @Module({
   imports: [
@@ -44,10 +42,8 @@ import { RepositoryModule } from './common/repository/repository.module';
 
     // General modules
     PrismaModule,
-    RepositoryModule,
     AuthModule,
     MailModule,
-    PaymentModule,
   ],
   controllers: [AppController],
   providers: [AppService],
