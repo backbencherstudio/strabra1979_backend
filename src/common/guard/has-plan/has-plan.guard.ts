@@ -4,17 +4,24 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
-import { UserRepository } from '../../repository/user/user.repository';
+import { PrismaService } from 'src/prisma/prisma.service';
 
 @Injectable()
 export class HasPlanGuard implements CanActivate {
-  constructor(private readonly userRepository: UserRepository) {}
+  constructor(private readonly prisma: PrismaService) {}
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest();
 
     try {
       const user_id = req.user.userId;
-      const userDetails = await this.userRepository.getUserDetails(user_id);
+      const userDetails = await this.prisma.user.findFirst({
+        where: { id: user_id },
+        select: {
+          id: true,
+          email: true,
+          type: true,
+        },
+      });
 
       // check if trial has expired
       // if (userDetails.tenant.trial_end_at < DateHelper.now()) {

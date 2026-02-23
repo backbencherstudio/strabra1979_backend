@@ -54,23 +54,10 @@ export default () => ({
     from: process.env.MAIL_FROM_ADDRESS,
   },
 
-  auth: {
-    google: {
-      app_id: process.env.GOOGLE_APP_ID,
-      app_secret: process.env.GOOGLE_APP_SECRET,
-      callback: process.env.GOOGLE_CALLBACK_URL,
-    },
-  },
-
   payment: {
     stripe: {
       secret_key: process.env.STRIPE_SECRET_KEY,
       webhook_secret: process.env.STRIPE_WEBHOOK_SECRET,
-    },
-    paypal: {
-      client_id: process.env.PAYPAL_CLIENT_ID,
-      secret: process.env.PAYPAL_SECRET,
-      api: process.env.PAYPAL_API,
     },
   },
 

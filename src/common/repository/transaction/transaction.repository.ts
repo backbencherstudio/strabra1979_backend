@@ -37,11 +37,11 @@ export class TransactionRepository {
     if (status) {
       data['status'] = status;
     }
-    return await this.prisma.paymentTransaction.create({
-      data: {
-        ...data,
-      },
-    });
+    // return await this.prisma.paymentTransaction.create({
+    //   // data: {
+    //   //   ...data,
+    //   // },
+    // });
   }
 
   /**

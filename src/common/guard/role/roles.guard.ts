@@ -8,13 +8,13 @@ import {
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from './roles.decorator';
 import { Role } from './role.enum';
-import { UserRepository } from '../../../common/repository/user/user.repository';
+import { PrismaService } from 'src/prisma/prisma.service';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
   constructor(
     private reflector: Reflector,
-    private userRepository: UserRepository,
+    private prisma: PrismaService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -29,7 +29,14 @@ export class RolesGuard implements CanActivate {
 
     const { user } = context.switchToHttp().getRequest();
 
-    const userDetails = await this.userRepository.getUserDetails(user.userId);
+    const userDetails = await this.prisma.user.findUnique({
+      where: {
+        id: user.userId,
+      },
+      select: {
+        type: true,
+      },
+    });
 
     if (!userDetails) {
       return false;

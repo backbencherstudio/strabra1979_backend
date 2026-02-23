@@ -3,12 +3,11 @@ import { Command, CommandRunner } from 'nest-commander';
 // internal imports
 import appConfig from '../config/app.config';
 import { StringHelper } from '../common/helper/string.helper';
-import { UserRepository } from '../common/repository/user/user.repository';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Command({ name: 'seed', description: 'prisma db seed' })
 export class SeedCommand extends CommandRunner {
-  constructor(private readonly prisma: PrismaService, private readonly userRepository: UserRepository) {
+  constructor(private readonly prisma: PrismaService) {
     super();
   }
   async run(passedParam: string[]): Promise<void> {
@@ -37,10 +36,12 @@ export class SeedCommand extends CommandRunner {
   //---- user section ----
   async userSeed() {
     // system admin, user id: 1
-    const systemUser = await this.userRepository.createSuAdminUser({
-      username: appConfig().defaultUser.system.username,
-      email: appConfig().defaultUser.system.email,
-      password: appConfig().defaultUser.system.password,
+    const systemUser = await this.prisma.user.create({
+      data: {
+        username: appConfig().defaultUser.system.username,
+        email: appConfig().defaultUser.system.email,
+        password: appConfig().defaultUser.system.password,
+      },
     });
 
     await this.prisma.roleUser.create({
