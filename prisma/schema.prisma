@@ -58,9 +58,6 @@ model User {
   gender        String?
   date_of_birth DateTime? @db.Date
 
-  // billing id. e.g. stripe customer id
-  billing_id String?
-
   type              String?   @default("user")
   email_verified_at DateTime?
 

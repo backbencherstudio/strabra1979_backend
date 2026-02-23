@@ -11,7 +11,6 @@ import { MailService } from '../../mail/mail.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { SojebStorage } from '../../common/lib/Disk/SojebStorage';
 import { DateHelper } from '../../common/helper/date.helper';
-import { StripePayment } from '../../common/lib/Payment/stripe/StripePayment';
 import { StringHelper } from '../../common/helper/string.helper';
 import * as bcrypt from 'bcrypt';
 
@@ -342,23 +341,6 @@ export class AuthService {
       //   };
       // }
 
-      // // create stripe customer account
-      // const stripeCustomer = await StripePayment.createCustomer({
-      //   user_id: user.data.id,
-      //   email: email,
-      //   name: name,
-      // });
-
-      // if (stripeCustomer) {
-      //   await this.prisma.user.update({
-      //     where: {
-      //       id: user.data.id,
-      //     },
-      //     data: {
-      //       billing_id: stripeCustomer.id,
-      //     },
-      //   });
-      // }
 
       // ----------------------------------------------------
       // // create otp code

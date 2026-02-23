@@ -17,9 +17,6 @@ async function bootstrap() {
     rawBody: true,
   });
 
-  // Handle raw body for webhooks
-  // app.use('/payment/stripe/webhook', express.raw({ type: 'application/json' }));
-
   app.setGlobalPrefix('api');
   app.enableCors();
   app.use(helmet());
