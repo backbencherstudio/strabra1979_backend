@@ -29,7 +29,7 @@ import {
 } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
-import { AuthGuard } from '@nestjs/passport';
+import { OptionalJwtGuard } from './guards/jwt-optional.guard';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -56,9 +56,11 @@ export class AuthController {
   }
 
   @ApiOperation({ summary: 'Register a user' })
+  @ApiBearerAuth()
+  @UseGuards(OptionalJwtGuard)
   @Post('register-user')
-  async create(@Body() data: CreateUserDto) {
-    const response = await this.authService.registerUser(data);
+  async create(@Body() data: CreateUserDto, @Req() req: Request) {
+    const response = await this.authService.registerUser(data, req?.user);
 
     return response;
   }

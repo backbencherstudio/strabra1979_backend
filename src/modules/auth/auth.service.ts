@@ -16,8 +16,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { MailService } from '../../mail/mail.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { SojebStorage } from '../../common/lib/Disk/SojebStorage';
-import { DateHelper } from '../../common/helper/date.helper';
-import { StringHelper } from '../../common/helper/string.helper';
 import * as bcrypt from 'bcrypt';
 import {
   CreateUserDto,
@@ -25,7 +23,7 @@ import {
   ResetPasswordDto,
   VerifyEmailDto,
 } from './dto/create-user.dto';
-import { UserStatus } from 'prisma/generated/enums';
+import { Role, UserStatus } from 'prisma/generated/enums';
 
 @Injectable()
 export class AuthService {
@@ -214,7 +212,7 @@ export class AuthService {
     } catch (error) {
       return {
         success: false,
-        message: error.message,
+        message: error?.message,
       };
     }
   }
@@ -243,17 +241,23 @@ export class AuthService {
     return result;
   }
 
-  async registerUser(payload: CreateUserDto) {
+  async registerUser(payload: CreateUserDto, currentUser: any) {
     const { email, password, username, role } = payload;
 
-    const existingUser = await this.prisma.user.findUnique({
-      where: {
-        email,
-      },
-    });
+    const isAdmin = currentUser?.role === Role.ADMIN;
 
-    if (existingUser) {
+    const existingEmail = await this.prisma.user.findUnique({
+      where: { email },
+    });
+    if (existingEmail) {
       throw new BadRequestException('Email already registered');
+    }
+
+    const existingUsername = await this.prisma.user.findUnique({
+      where: { username },
+    });
+    if (existingUsername) {
+      throw new BadRequestException('Username already taken');
     }
 
     const hashedPassword = await bcrypt.hash(
@@ -265,20 +269,25 @@ export class AuthService {
       data: {
         email,
         password: hashedPassword,
-        name: username,
-        status: UserStatus.DEACTIVATED,
-        role,
+        username,
+        role: isAdmin ? role : Role.AUTHORIZED_VIEWER,
+        status: isAdmin ? UserStatus.ACTIVE : UserStatus.DEACTIVATED,
+        approved_at: isAdmin ? new Date() : null,
+        approved_by: isAdmin ? currentUser.userId : null,
       },
     });
 
     return {
       success: true,
-      message: 'User registered successfully',
+      message: isAdmin
+        ? 'User created successfully'
+        : 'Registration successful. Awaiting admin approval.',
       data: {
         id: newUser.id,
         email: newUser.email,
-        name: newUser.name,
+        username: newUser.username,
         role: newUser.role,
+        status: newUser.status,
       },
     };
   }
@@ -303,7 +312,7 @@ export class AuthService {
       },
     });
 
-    console.log(otp)
+    console.log(otp);
 
     await this.mailService.sendOtpCodeToEmail({
       email: user.email,

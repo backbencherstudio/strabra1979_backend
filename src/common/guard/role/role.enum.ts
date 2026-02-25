@@ -1,5 +1,8 @@
 export enum Role {
   // SUPERADMIN = 'superadmin',
-  ADMIN = 'admin',
-  USER = 'user',
+  ADMIN = 'ADMIN',
+  USER = 'USER',
+  PROPERTY_MANAGER = 'PROPERTY_MANAGER',
+  AUTHORIZED_VIEWER = 'AUTHORIZED_VIEWER',
+  OPERATIONAL = 'OPERATIONAL',
 }
