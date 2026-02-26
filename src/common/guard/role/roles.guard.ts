@@ -34,7 +34,7 @@ export class RolesGuard implements CanActivate {
         id: user.userId,
       },
       select: {
-        type: true,
+        role: true,
       },
     });
 
@@ -42,7 +42,7 @@ export class RolesGuard implements CanActivate {
       return false;
     }
 
-    if (requiredRoles.some((role) => userDetails.type?.includes(role))) {
+    if (requiredRoles.some((role) => userDetails.role?.includes(role))) {
       return true;
     } else {
       throw new HttpException(

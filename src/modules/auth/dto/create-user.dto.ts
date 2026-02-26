@@ -1,31 +1,111 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, MinLength } from 'class-validator';
+import {
+  IsEmail,
+  IsEnum,
+  IsNotEmpty,
+  IsString,
+  MinLength,
+} from 'class-validator';
+import { Role } from 'prisma/generated/enums';
 
 export class CreateUserDto {
   @IsNotEmpty()
-  @ApiProperty()
-  name?: string;
+  @IsString()
+  @ApiProperty({ example: 'john_doe' })
+  username: string;
 
   @IsNotEmpty()
-  @ApiProperty()
-  first_name?: string;
+  @IsEnum(Role)
+  @ApiProperty({ enum: Role, example: Role.AUTHORIZED_VIEWER })
+  role: Role;
 
   @IsNotEmpty()
-  @ApiProperty()
-  last_name?: string;
+  @IsEmail()
+  @ApiProperty({ example: 'john@example.com' })
+  email: string;
 
   @IsNotEmpty()
-  @ApiProperty()
-  email?: string;
-
-  @IsNotEmpty()
-  @MinLength(8, { message: 'Password should be minimum 8' })
-  @ApiProperty()
+  @IsString()
+  @MinLength(8, { message: 'Password must be at least 8 characters' })
+  @ApiProperty({ example: 'password123' })
   password: string;
+}
 
+export class LoginDto {
+  @IsNotEmpty()
+  @IsEmail()
+  @ApiProperty({ example: 'john@example.com' })
+  email: string;
+
+  @IsNotEmpty()
+  @IsString()
+  @ApiProperty({ example: 'password123' })
+  password: string;
+}
+
+export class RefreshTokenDto {
+  @IsNotEmpty()
+  @IsString()
   @ApiProperty({
-    type: String,
-    example: 'user',
+    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.refresh.token.example',
   })
-  type?: string;
+  refresh_token: string;
+}
+
+export class ForgotPasswordDto {
+  @IsNotEmpty()
+  @IsEmail()
+  @ApiProperty({
+    example: 'john@example.com',
+    description: 'User email to receive OTP',
+  })
+  email: string;
+}
+
+export class VerifyEmailDto {
+  @IsEmail()
+  @IsNotEmpty()
+  @ApiProperty({ example: 'john@example.com' })
+  email: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @ApiProperty({ example: '123456' })
+  otp: string;
+}
+
+export class ResendVerificationDto {
+  @IsEmail()
+  @IsNotEmpty()
+  @ApiProperty({ example: 'john@example.com' })
+  email: string;
+}
+
+export class ResetPasswordDto {
+  @IsEmail()
+  @IsNotEmpty()
+  @ApiProperty({
+    example: 'john@example.com',
+    description: 'User email',
+  })
+  email: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @ApiProperty({
+    example: '28ee058c678f5c0d7260',
+    description: 'OTP or reset token received in email',
+  })
+  reset_token: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(8, {
+    message: 'Password must be at least 8 characters',
+  })
+  @ApiProperty({
+    example: 'NewStrongPass123',
+    description: 'New password after OTP verification',
+  })
+  new_password: string;
 }
