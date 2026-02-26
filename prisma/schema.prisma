@@ -50,12 +50,17 @@ model User {
   // soft delete flag
   isDeleted Boolean @default(false)
 
+  // Notification preferences
+  notif_new_property_dashboard_assigned   Boolean @default(true)
+  notif_property_dashboard_access_request Boolean @default(true)
+  notif_property_dashboard_update         Boolean @default(true)
+
   // Relations
   receiver_notifications Notification[] @relation("receiver")
   sender_notifications   Notification[] @relation("sender")
 
-  // Properties this user has access to
-  property_access PropertyAccess[]
+  managedProperties Property[]   @relation("PropertyManager")
+  inspections       Inspection[]
 
   // Audit: actions performed by this user
   audit_logs AuditLog[]
@@ -63,114 +68,251 @@ model User {
   @@map("users")
 }
 
-// Junction table: which users have access to which properties
-model PropertyAccess {
-  id         String   @id @default(cuid())
-  created_at DateTime @default(now())
-  updated_at DateTime @default(now())
+// ─────────────────────────────────────────
+// INSPECTION CRITERIA (Pillar 1)
+// ─────────────────────────────────────────
 
-  user_id     String
-  user        User     @relation(fields: [user_id], references: [id])
-  property_id String
-  property    Property @relation(fields: [property_id], references: [id])
+model InspectionCriteria {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  // Role override at property level (optional, falls back to user.role)
-  role String?
+  // The input fields shown at top of inspection form
+  // e.g. Property Name, Date, Inspector, Roof System Type
+  headerFields Json
+  // Example:
+  // [
+  //   { "key": "inspectionTitle", "label": "Inspection Title", "type": "text", "required": true },
+  //   { "key": "propertyType",    "label": "Property Type",    "type": "dropdown",
+  //     "options": ["Commercial","Residential"], "required": false },
+  //   { "key": "roofSystemType",  "label": "Roof System Type", "type": "dropdown",
+  //     "options": ["TPO","Metal","Shingle"], "required": false },
+  //   { "key": "drainageType",    "label": "Drainage Type",    "type": "dropdown",
+  //     "options": ["Internal","External"], "required": false }
+  // ]
 
-  // Time-limited access for insurers, consultants, etc.
-  expires_at DateTime?
-  revoked_at DateTime?
-  granted_by String? // admin user id
+  // The scored categories shown in checklist
+  // e.g. Surface Condition (25pts), Seams & Flashings (20pts)
+  scoringCategories Json
+  // Example:
+  // [
+  //   { "key": "surfaceCondition",  "label": "Surface Condition",       "maxPoints": 25 },
+  //   { "key": "seamsFlashings",    "label": "Seams & Flashings",       "maxPoints": 20 },
+  //   { "key": "drainagePonding",   "label": "Drainage & Ponding",      "maxPoints": 15 },
+  //   { "key": "penetrations",      "label": "Penetrations & Accessories", "maxPoints": 10 },
+  //   { "key": "repairsHistory",    "label": "Repairs & Patch History", "maxPoints": 10 },
+  //   { "key": "ageExpectedLife",   "label": "Age vs. Expected Life",   "maxPoints": 10 }
+  // ]
 
-  @@unique([user_id, property_id])
-  @@map("property_access")
+  templates DashboardTemplate[]
+
+  @@map("inspection_criteria")
 }
 
+// ─────────────────────────────────────────
+// DASHBOARD TEMPLATE (Pillar 2)
+// ─────────────────────────────────────────
+
+model DashboardTemplate {
+  id         String         @id @default(cuid())
+  name       String
+  status     TemplateStatus @default(ACTIVE)
+  criteriaId String
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  // Layout sections — what blocks appear on the dashboard
+  sections Json
+  // Example:
+  // [
+  //   { "order": 1, "type": "header_info",      "label": "Property Info",         "config": {} },
+  //   { "order": 2, "type": "health_snapshot",  "label": "Roof Health Snapshot",  "config": {} },
+  //   { "order": 3, "type": "media_grid",       "label": "Media Files",           "config": {} },
+  //   { "order": 4, "type": "aerial_map",       "label": "Aerial Map",            "config": {} },
+  //   { "order": 5, "type": "tour_3d",          "label": "3D Roof Tour",          "config": {} },
+  //   { "order": 6, "type": "repair_planning",  "label": "Priority Repair Planning", "config": {} },
+  //   { "order": 7, "type": "documents",        "label": "Documents",             "config": {} },
+  //   { "order": 8, "type": "additional_info",  "label": "Additional Information","config": {} }
+  // ]
+
+  criteria   InspectionCriteria @relation(fields: [criteriaId], references: [id])
+  properties Property[]
+
+  @@map("dashboard_templates")
+}
+
+enum TemplateStatus {
+  ACTIVE
+  INACTIVE
+  DELETED
+}
+
+// ─────────────────────────────────────────
+// PROPERTY (Pillar 3) ← your form creates this
+// ─────────────────────────────────────────
+
 model Property {
-  id         String   @id @default(cuid())
-  created_at DateTime @default(now())
-  updated_at DateTime @default(now())
+  id String @id @default(cuid())
 
-  status Int? @default(1) @db.SmallInt
+  // ── From your "Create New Property Dashboard" form ──
+  name               String // "Property Name *"
+  address            String // "Address *"
+  propertyType       String? // "Property Type" dropdown
+  nextInspectionDate DateTime? // "Next Inspection" date picker
+  propertyManagerId  String? // "Assign Property Manager" dropdown
+  // ────────────────────────────────────────────────────
 
-  name       String? @db.VarChar(255)
-  identifier String? @unique @db.VarChar(255) // short code / slug
-  address    String?
-  city       String?
-  state      String?
-  zip_code   String?
-  country    String?
-
-  // Dashboard display
-  // Values: "complete" | "in_progress" | "missing"
-  dashboard_status String?   @default("in_progress")
-  last_updated_at  DateTime?
-  next_action_at   DateTime?
-  notes            String?
-
-  // Template this was created from
-  template_id String?
-  template    PropertyTemplate? @relation(fields: [template_id], references: [id])
+  activeTemplateId String?
+  status           PropertyStatus @default(ACTIVE)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
   // Relations
-  user_access PropertyAccess[]
-  documents   Document[]
-  audit_logs  AuditLog[]
+  propertyManager User?              @relation("PropertyManager", fields: [propertyManagerId], references: [id])
+  activeTemplate  DashboardTemplate? @relation(fields: [activeTemplateId], references: [id])
+  dashboard       PropertyDashboard?
+  auditLogs       AuditLog[]
 
   @@map("properties")
 }
 
-model PropertyTemplate {
-  id         String   @id @default(cuid())
-  created_at DateTime @default(now())
-  updated_at DateTime @default(now())
-
-  name        String? @db.VarChar(255)
-  description String?
-
-  // JSON config: required/optional document categories, status fields, etc.
-  config Json?
-
-  properties Property[]
-
-  @@map("property_templates")
+enum PropertyStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
 }
 
-// Documents, photos, videos — append-only, versioned
+// ─────────────────────────────────────────
+// PROPERTY DASHBOARD (Pillar 4)
+// ─────────────────────────────────────────
+
+model PropertyDashboard {
+  id         String @id @default(cuid())
+  propertyId String @unique // one dashboard per property
+  templateId String
+
+  // Frozen copy of template.sections at creation time
+  // so editing the template later never breaks this dashboard
+  templateSnapshot Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  property    Property     @relation(fields: [propertyId], references: [id])
+  inspections Inspection[]
+  documents   Document[]
+  auditLogs   AuditLog[]
+
+  @@map("property_dashboards")
+}
+
+// ─────────────────────────────────────────
+// INSPECTION (Pillar 5)
+// ─────────────────────────────────────────
+
+model Inspection {
+  id          String           @id @default(cuid())
+  dashboardId String
+  inspectorId String
+  status      InspectionStatus @default(DRAFT)
+
+  // Filled header fields (matches criteria.headerFields keys)
+  // { "inspectionTitle": "2024 Annual Roof Inspection", "roofSystemType": "Metal", ... }
+  headerData Json
+
+  // Filled scores per category (matches criteria.scoringCategories keys)
+  // { "surfaceCondition": { "score": 22, "notes": "Minor cracks observed" },
+  //   "seamsFlashings":   { "score": 18, "notes": "Good overall" }, ... }
+  scores Json
+
+  // Computed from scores
+  overallScore  Float?
+  healthLabel   String? // "Good" | "Fair" | "Poor"
+  remainingLife String? // "5-7 Years"
+
+  // Repair items shown in Priority Repair Planning section
+  repairItems Json
+  // [
+  //   { "title": "Emergency Leak Repair", "priority": "urgent",
+  //     "description": "Moisture stains / vulnerable joints noted..." },
+  //   { "title": "Metal Panel Corrosion", "priority": "maintenance",  "description": "..." },
+  //   { "title": "Metal Panel Corrosion", "priority": "replacement_planning", "description": "..." }
+  // ]
+
+  aerialMapUrl String?
+  tourUrl      String?
+
+  // NTE and additional comments (Additional Information section)
+  nteValue           Float?
+  additionalComments String?
+
+  inspectedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  dashboard  PropertyDashboard @relation(fields: [dashboardId], references: [id])
+  inspector  User              @relation(fields: [inspectorId], references: [id])
+  mediaFiles MediaFile[]
+
+  @@map("inspections")
+}
+
+enum InspectionStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  ARCHIVED
+}
+
+// ─────────────────────────────────────────
+// MEDIA FILES
+// ─────────────────────────────────────────
+
+model MediaFile {
+  id           String    @id @default(cuid())
+  inspectionId String
+  dashboardId  String?
+  fileName     String
+  fileType     MediaType
+  url          String
+  category     String? // "photo" | "aerial" | "tour" | "video"
+  size         Int? // bytes
+  version      Int       @default(1)
+  isArchived   Boolean   @default(false)
+  uploadedAt   DateTime  @default(now())
+
+  inspection Inspection @relation(fields: [inspectionId], references: [id])
+
+  @@map("media_files")
+}
+
+enum MediaType {
+  PHOTO
+  VIDEO
+  PDF
+  EMBED
+}
+
+// ─────────────────────────────────────────
+// DOCUMENTS
+// ─────────────────────────────────────────
+
 model Document {
-  id         String   @id @default(cuid())
-  created_at DateTime @default(now())
-  updated_at DateTime @default(now())
+  id          String   @id @default(cuid())
+  dashboardId String
+  name        String
+  url         String
+  fileSize    Int?
+  version     Int      @default(1)
+  isArchived  Boolean  @default(false)
+  uploadedAt  DateTime @default(now())
 
-  property_id String
-  property    Property @relation(fields: [property_id], references: [id])
-
-  // File metadata
-  name      String? @db.VarChar(255)
-  // Values: "document" | "photo" | "video" | "embed"
-  type      String? @db.VarChar(50)
-  category  String? @db.VarChar(255) // folder/category label
-  url       String? // cloud storage URL or external embed URL
-  mime_type String? @db.VarChar(100)
-  file_size Int? // bytes
-
-  // Versioning (append-only)
-  version     Int?    @default(1)
-  is_current  Boolean @default(true)
-  previous_id String? // points to prior version
-
-  // For embedded external content (3D tours, maps, etc.)
-  embed_url  String?
-  embed_type String? @db.VarChar(50) // "3d_tour" | "map" | "video" | "external_doc"
-
-  // Uploader
-  uploaded_by String? // user id
-
-  // Status indicator for required doc tracking
-  // Values: "complete" | "in_progress" | "missing"
-  doc_status String? @default("complete")
-
-  audit_logs AuditLog[]
+  dashboard PropertyDashboard @relation(fields: [dashboardId], references: [id])
+  auditLogs AuditLog[]
 
   @@map("documents")
 }
@@ -196,7 +338,8 @@ model AuditLog {
   entity_id   String?
 
   // Snapshot of changes (JSON diff)
-  metadata Json?
+  metadata           Json?
+  propertyDashboards PropertyDashboard[]
 
   @@map("audit_logs")
 }
