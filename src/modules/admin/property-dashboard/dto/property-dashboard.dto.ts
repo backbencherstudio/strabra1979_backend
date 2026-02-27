@@ -52,7 +52,7 @@ export class CreatePropertyDto {
 
   @ApiPropertyOptional({
     description: 'User ID of the Property Manager to assign',
-    example: 'clxyz123abc',
+    example: 'cmm4g1m4f0001pwu8u9z7v4ml',
   })
   @IsOptional()
   @IsString()
@@ -61,7 +61,7 @@ export class CreatePropertyDto {
   @ApiPropertyOptional({
     description:
       'Dashboard Template ID to use. If omitted the system will use the default active template.',
-    example: 'clxyz456def',
+    example: 'cmm4hgov50001sku8wd0n3rzq',
   })
   @IsOptional()
   @IsString()
