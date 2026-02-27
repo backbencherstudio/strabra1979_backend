@@ -9,12 +9,13 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { UpdateTimezoneDto } from './dto/update-timezone.dto';
 import { UpdateNotificationPreferencesDto } from './dto/notification-preference.dto';
+import { Role } from 'src/common/guard/role/role.enum';
 
 @Injectable()
 export class ProfileService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // ─── GET PROFILE ─────────────────────────────────────────────────────────────
+  // ─── GET PROFILE ──────────────────────────────────────────────────────────
 
   async getProfile(userId: string) {
     const user = await this.prisma.user.findFirst({
@@ -30,18 +31,28 @@ export class ProfileService {
         status: true,
         timezone: true,
         email_verified_at: true,
-        // Notification preferences
-        notif_new_property_dashboard_assigned: true,
-        notif_property_dashboard_access_request: true,
-        notif_property_dashboard_update: true,
+        // Property Manager notifications
+        notif_pm_new_property_dashboard_assigned: true,
+        notif_pm_property_dashboard_access_request: true,
+        notif_pm_property_dashboard_update: true,
+        // Authorized Viewer notifications
+        notif_av_new_property_dashboard_invitation: true,
+        notif_av_access_request_update: true,
+        notif_av_property_dashboard_update: true,
+        // Operational Team notifications
+        notif_ot_new_inspection_assigned: true,
+        notif_ot_due_inspection: true,
+        notif_ot_incomplete_inspection_report: true,
+        // Admin notifications
+        notif_admin_new_user_registration: true,
+        notif_admin_due_inspection: true,
+        notif_admin_new_inspection_report_update: true,
         created_at: true,
         updated_at: true,
       },
     });
 
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
+    if (!user) throw new NotFoundException('User not found');
 
     return {
       success: true,
@@ -50,16 +61,14 @@ export class ProfileService {
     };
   }
 
-  // ─── UPDATE GENERAL SETTINGS (name / email) ───────────────────────────────
+  // ─── UPDATE PROFILE (name / email) ────────────────────────────────────────
 
   async updateProfile(userId: string, dto: UpdateProfileDto) {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, isDeleted: false },
     });
 
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
+    if (!user) throw new NotFoundException('User not found');
 
     const updated = await this.prisma.user.update({
       where: { id: userId },
@@ -83,9 +92,7 @@ export class ProfileService {
         entity_type: 'user',
         entity_id: userId,
         action: 'profile_updated',
-        metadata: {
-          fields_changed: Object.keys(dto),
-        },
+        metadata: { fields_changed: Object.keys(dto) },
       },
     });
 
@@ -110,9 +117,7 @@ export class ProfileService {
       select: { id: true, password: true },
     });
 
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
+    if (!user) throw new NotFoundException('User not found');
 
     if (!user.password) {
       throw new BadRequestException(
@@ -121,9 +126,8 @@ export class ProfileService {
     }
 
     const isMatch = await bcrypt.compare(dto.current_password, user.password);
-    if (!isMatch) {
+    if (!isMatch)
       throw new BadRequestException('Current password is incorrect');
-    }
 
     if (dto.current_password === dto.new_password) {
       throw new BadRequestException(
@@ -148,10 +152,7 @@ export class ProfileService {
       },
     });
 
-    return {
-      success: true,
-      message: 'Password changed successfully',
-    };
+    return { success: true, message: 'Password changed successfully' };
   }
 
   // ─── UPDATE TIMEZONE ──────────────────────────────────────────────────────
@@ -167,9 +168,7 @@ export class ProfileService {
       where: { id: userId, isDeleted: false },
     });
 
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
+    if (!user) throw new NotFoundException('User not found');
 
     const updated = await this.prisma.user.update({
       where: { id: userId },
@@ -177,11 +176,7 @@ export class ProfileService {
         timezone: dto.auto_timezone ? 'auto' : dto.timezone,
         updated_at: new Date(),
       },
-      select: {
-        id: true,
-        timezone: true,
-        updated_at: true,
-      },
+      select: { id: true, timezone: true, updated_at: true },
     });
 
     return {
@@ -192,40 +187,75 @@ export class ProfileService {
   }
 
   // ─── UPDATE NOTIFICATION PREFERENCES ─────────────────────────────────────
-
+  //
+  // Only fields that exist on the User model are passed to Prisma.
+  // The frontend should send only the fields relevant to the user's role,
+  // but the service accepts any valid subset for flexibility.
+  //
   async updateNotificationPreferences(
     userId: string,
     dto: UpdateNotificationPreferencesDto,
   ) {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, isDeleted: false },
+      select: { id: true, role: true },
     });
 
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
+    if (!user) throw new NotFoundException('User not found');
+
+    // Build update payload — only include fields present in dto
+    const data: Record<string, boolean> = {};
+
+    const boolField = (key: keyof UpdateNotificationPreferencesDto) => {
+      if (dto[key] !== undefined) data[key] = dto[key] as boolean;
+    };
+
+    // Property Manager fields
+    boolField('notif_pm_new_property_dashboard_assigned');
+    boolField('notif_pm_property_dashboard_access_request');
+    boolField('notif_pm_property_dashboard_update');
+
+    // Authorized Viewer fields
+    boolField('notif_av_new_property_dashboard_invitation');
+    boolField('notif_av_access_request_update');
+    boolField('notif_av_property_dashboard_update');
+
+    // Operational Team fields
+    boolField('notif_ot_new_inspection_assigned');
+    boolField('notif_ot_due_inspection');
+    boolField('notif_ot_incomplete_inspection_report');
+
+    // Admin fields
+    boolField('notif_admin_new_user_registration');
+    boolField('notif_admin_due_inspection');
+    boolField('notif_admin_new_inspection_report_update');
 
     const updated = await this.prisma.user.update({
       where: { id: userId },
-      data: {
-        ...(dto.notif_new_property_dashboard_assigned !== undefined && {
-          notif_new_property_dashboard_assigned:
-            dto.notif_new_property_dashboard_assigned,
-        }),
-        ...(dto.notif_property_dashboard_access_request !== undefined && {
-          notif_property_dashboard_access_request:
-            dto.notif_property_dashboard_access_request,
-        }),
-        ...(dto.notif_property_dashboard_update !== undefined && {
-          notif_property_dashboard_update: dto.notif_property_dashboard_update,
-        }),
-        updated_at: new Date(),
-      },
+      data: { ...data, updated_at: new Date() },
       select: {
         id: true,
-        notif_new_property_dashboard_assigned: true,
-        notif_property_dashboard_access_request: true,
-        notif_property_dashboard_update: true,
+        // Return only the fields relevant to this user's role
+        ...(user.role === Role.PROPERTY_MANAGER && {
+          notif_pm_new_property_dashboard_assigned: true,
+          notif_pm_property_dashboard_access_request: true,
+          notif_pm_property_dashboard_update: true,
+        }),
+        ...(user.role === Role.AUTHORIZED_VIEWER && {
+          notif_av_new_property_dashboard_invitation: true,
+          notif_av_access_request_update: true,
+          notif_av_property_dashboard_update: true,
+        }),
+        ...(user.role === Role.OPERATIONAL && {
+          notif_ot_new_inspection_assigned: true,
+          notif_ot_due_inspection: true,
+          notif_ot_incomplete_inspection_report: true,
+        }),
+        ...(user.role === Role.ADMIN && {
+          notif_admin_new_user_registration: true,
+          notif_admin_due_inspection: true,
+          notif_admin_new_inspection_report_update: true,
+        }),
         updated_at: true,
       },
     });

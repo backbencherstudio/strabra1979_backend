@@ -50,10 +50,26 @@ model User {
   // soft delete flag
   isDeleted Boolean @default(false)
 
-  // Notification preferences
-  notif_new_property_dashboard_assigned   Boolean @default(true)
-  notif_property_dashboard_access_request Boolean @default(true)
-  notif_property_dashboard_update         Boolean @default(true)
+  // ── Personal Notification Preferences 
+  // Property Manager (role = PROPERTY_MANAGER)
+  notif_pm_new_property_dashboard_assigned   Boolean @default(true)
+  notif_pm_property_dashboard_access_request Boolean @default(true)
+  notif_pm_property_dashboard_update         Boolean @default(true)
+
+  // Authorized Viewer (role = AUTHORIZED_VIEWER)
+  notif_av_new_property_dashboard_invitation Boolean @default(true)
+  notif_av_access_request_update             Boolean @default(true)
+  notif_av_property_dashboard_update         Boolean @default(true)
+
+  // Operational Team (role = OPERATIONAL_TEAM)
+  notif_ot_new_inspection_assigned      Boolean @default(true)
+  notif_ot_due_inspection               Boolean @default(true)
+  notif_ot_incomplete_inspection_report Boolean @default(true)
+
+  // Admin personal notifications (role = ADMIN)
+  notif_admin_new_user_registration        Boolean @default(true)
+  notif_admin_due_inspection               Boolean @default(true)
+  notif_admin_new_inspection_report_update Boolean @default(true)
 
   // Relations
   receiver_notifications Notification[] @relation("receiver")
@@ -379,6 +395,53 @@ model Notification {
   entity_id String?
 
   @@map("notifications")
+}
+
+model UserLevelNotificationSettings {
+  id         String   @id @default(cuid())
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+  updated_by String?  // admin user id who last changed this
+
+  // Property Manager defaults
+  pm_new_property_dashboard_assigned   Boolean @default(true)
+  pm_property_dashboard_access_request Boolean @default(true)
+  pm_property_dashboard_update         Boolean @default(true)
+
+  // Authorized Viewer defaults
+  av_new_property_dashboard_invitation Boolean @default(true)
+  av_access_request_update             Boolean @default(true)
+  av_property_dashboard_update         Boolean @default(true)
+
+  // Operational Team defaults
+  ot_new_inspection_assigned      Boolean @default(true)
+  ot_due_inspection               Boolean @default(true)
+  ot_incomplete_inspection_report Boolean @default(true)
+
+  // Admin defaults
+  admin_new_user_registration        Boolean @default(true)
+  admin_due_inspection               Boolean @default(true)
+  admin_new_inspection_report_update Boolean @default(true)
+
+  @@map("user_level_notification_settings")
+}
+
+// ─── 3. New singleton model: BrandingSettings ────────────────────────────────
+
+model BrandingSettings {
+  id         String   @id @default(cuid())
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+  updated_by String?
+
+  platform_name               String? @default("") @db.VarChar(100)
+  platform_logo_url           String?
+  signup_onboarding_image_url String?
+  login_onboarding_image_url  String?
+  primary_color               String? @db.VarChar(7)
+  primary_color_label         String? @db.VarChar(50)
+
+  @@map("branding_settings")
 }
 
 enum Role {

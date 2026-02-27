@@ -11,6 +11,10 @@ import { AppModule } from './app.module';
 import appConfig from './config/app.config';
 import { CustomExceptionFilter } from './common/exception/custom-exception.filter';
 import { SojebStorage } from './common/lib/Disk/SojebStorage';
+import {
+  buildSwaggerOptions,
+  swaggerUiOptions,
+} from './common/swagger/swagger-auth';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -65,15 +69,9 @@ async function bootstrap() {
   });
 
   // swagger
-  const options = new DocumentBuilder()
-    .setTitle(`${process.env.APP_NAME} api`)
-    .setDescription(`${process.env.APP_NAME} api docs`)
-    .setVersion('1.0')
-    .addTag(`${process.env.APP_NAME}`)
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, options);
-  SwaggerModule.setup('api/docs', app, document);
+  const document = SwaggerModule.createDocument(app, buildSwaggerOptions());
+
+  SwaggerModule.setup('api/docs', app, document, swaggerUiOptions);
   // end swagger
 
   await app.listen(process.env.PORT ?? 4000, '0.0.0.0');
