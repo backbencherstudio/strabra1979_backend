@@ -35,45 +35,12 @@ import { SWAGGER_AUTH } from 'src/common/swagger/swagger-auth';
 
 @ApiTags('Property Dashboard')
 @ApiBearerAuth(SWAGGER_AUTH.admin)
+@ApiBearerAuth(SWAGGER_AUTH.property_manager)
+@ApiBearerAuth(SWAGGER_AUTH.authorized_viewer)
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('properties')
 export class PropertyDashboardController {
   constructor(private readonly service: PropertyDashboardService) {}
-
-  // ─── LOOKUP ENDPOINTS (used to populate form dropdowns) ──────────────────────
-
-  //   @Get('lookup/property-managers')
-  //   @ApiOperation({
-  //     summary: 'List available Property Managers',
-  //     description:
-  //       'Returns all active users with the PROPERTY_MANAGER role. ' +
-  //       'Used to populate the "Assign Property Manager" dropdown in the creation form.',
-  //   })
-  //   @ApiQuery({
-  //     name: 'search',
-  //     required: false,
-  //     description: 'Filter by name or email',
-  //     example: 'Leslie',
-  //   })
-  //   @ApiResponse({ status: 200, description: 'List of property managers.' })
-  //   getPropertyManagers(@Query('search') search?: string) {
-  //     return this.service.getAvailablePropertyManagers(search);
-  //   }
-
-  //   @Get('lookup/templates')
-  //   @ApiOperation({
-  //     summary: 'List available Dashboard Templates',
-  //     description:
-  //       'Returns all active dashboard templates. ' +
-  //       'Used to populate the optional template selector. ' +
-  //       'If no template is chosen the system uses the most recently created active template.',
-  //   })
-  //   @ApiResponse({ status: 200, description: 'List of active templates.' })
-  //   getTemplates() {
-  //     return this.service.getAvailableTemplates();
-  //   }
-
-  // ─── PROPERTY CRUD ────────────────────────────────────────────────────────────
 
   @Get()
   @ApiOperation({
@@ -229,44 +196,6 @@ export class PropertyDashboardController {
   })
   getAccess(@Param('propertyId') propertyId: string) {
     return this.service.getPropertyAccess(propertyId);
-  }
-
-  @Post(':propertyId/access/grant')
-  @Roles(Role.ADMIN)
-  @ApiOperation({
-    summary: 'Grant a user access to a property dashboard',
-    description:
-      'Grants an Authorized Viewer or other user access to this property. ' +
-      'An optional access expiration date can be set — ideal for insurers and consultants.',
-  })
-  @ApiParam({ name: 'propertyId', description: 'CUID of the property' })
-  @ApiResponse({ status: 201, description: 'Access granted.' })
-  @ApiResponse({ status: 404, description: 'Property or User not found.' })
-  grantAccess(
-    @Param('propertyId') propertyId: string,
-    @Body() dto: GrantPropertyAccessDto,
-    @Req() req: Request,
-  ) {
-    return this.service.grantAccess(propertyId, dto, req.user?.userId);
-  }
-
-  @Post(':propertyId/access/revoke')
-  @Roles(Role.ADMIN)
-  @ApiOperation({
-    summary: "Revoke a user's access to a property dashboard",
-    description:
-      'Immediately revokes access. ' +
-      'Corresponds to the "Revoke access" option in the access list context menu.',
-  })
-  @ApiParam({ name: 'propertyId', description: 'CUID of the property' })
-  @ApiResponse({ status: 201, description: 'Access revoked.' })
-  @ApiResponse({ status: 404, description: 'Property or User not found.' })
-  revokeAccess(
-    @Param('propertyId') propertyId: string,
-    @Body() dto: RevokePropertyAccessDto,
-    @Req() req: Request,
-  ) {
-    return this.service.revokeAccess(propertyId, dto, req.user?.userId);
   }
 
   @Patch(':propertyId/access/expiration')

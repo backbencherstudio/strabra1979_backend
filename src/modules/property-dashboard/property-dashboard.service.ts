@@ -109,7 +109,7 @@ export class PropertyDashboardService {
   async findAll(requestingUserId: string, requestingUserRole: string) {
     // Admins see every property; other roles see only their assigned ones
     if (requestingUserRole === Role.ADMIN) {
-      return this.prisma.property.findMany({
+      const result = await this.prisma.property.findMany({
         where: { status: { not: 'ARCHIVED' } },
         include: {
           propertyManager: {
@@ -119,10 +119,16 @@ export class PropertyDashboardService {
         },
         orderBy: { createdAt: 'desc' },
       });
+
+      return {
+        success: true,
+        message: 'Properties retrieved successfully',
+        data: result,
+      };
     }
 
     if (requestingUserRole === Role.PROPERTY_MANAGER) {
-      return this.prisma.property.findMany({
+      const result = await this.prisma.property.findMany({
         where: {
           propertyManagerId: requestingUserId,
           status: { not: 'ARCHIVED' },
@@ -135,6 +141,12 @@ export class PropertyDashboardService {
         },
         orderBy: { createdAt: 'desc' },
       });
+
+      return {
+        success: true,
+        message: 'Properties retrieved successfully',
+        data: result,
+      };
     }
 
     // AUTHORIZED_VIEWER / OPERATIONAL — needs a PropertyAccess join table (future)
@@ -324,92 +336,6 @@ export class PropertyDashboardService {
     };
   }
 
-  // ─── 8. GRANT ACCESS ─────────────────────────────────────────────────────────
-
-  async grantAccess(
-    propertyId: string,
-    dto: GrantPropertyAccessDto,
-    adminId: string,
-  ) {
-    await this._assertPropertyExists(propertyId);
-
-    const user = await this.prisma.user.findFirst({
-      where: { id: dto.userId, isDeleted: false },
-    });
-    if (!user) throw new NotFoundException('User not found.');
-
-    // Set optional expiration on the user record
-    const updatedUser = await this.prisma.user.update({
-      where: { id: dto.userId },
-      data: {
-        access_expires_at: dto.accessExpiresAt
-          ? new Date(dto.accessExpiresAt)
-          : undefined,
-        access_revoked_at: null,
-        access_revoked_by: null,
-      },
-    });
-
-    await this.prisma.auditLog.create({
-      data: {
-        user_id: adminId,
-        property_id: propertyId,
-        action: 'user_access_granted',
-        entity_type: 'user',
-        entity_id: dto.userId,
-        metadata: {
-          grantedUserId: dto.userId,
-          accessExpiresAt: dto.accessExpiresAt ?? null,
-        },
-      },
-    });
-
-    return {
-      success: true,
-      message: 'Access granted.',
-      user: updatedUser,
-    };
-  }
-
-  // ─── 9. REVOKE ACCESS ────────────────────────────────────────────────────────
-
-  async revokeAccess(
-    propertyId: string,
-    dto: RevokePropertyAccessDto,
-    adminId: string,
-  ) {
-    await this._assertPropertyExists(propertyId);
-
-    const user = await this.prisma.user.findFirst({
-      where: { id: dto.userId, isDeleted: false },
-    });
-    if (!user) throw new NotFoundException('User not found.');
-
-    await this.prisma.user.update({
-      where: { id: dto.userId },
-      data: {
-        access_revoked_at: new Date(),
-        access_revoked_by: adminId,
-      },
-    });
-
-    await this.prisma.auditLog.create({
-      data: {
-        user_id: adminId,
-        property_id: propertyId,
-        action: 'user_access_revoked',
-        entity_type: 'user',
-        entity_id: dto.userId,
-        metadata: { revokedUserId: dto.userId },
-      },
-    });
-
-    return {
-      success: true,
-      message: 'Access revoked.',
-    };
-  }
-
   // ─── 10. SET ACCESS EXPIRATION DATE ──────────────────────────────────────────
 
   async setAccessExpiration(
@@ -446,49 +372,6 @@ export class PropertyDashboardService {
       user: updatedUser,
     };
   }
-
-  // ─── 11. GET AVAILABLE PROPERTY MANAGERS (for the assign dropdown) ────────────
-
-  //   async getAvailablePropertyManagers(search?: string) {
-  //     return this.prisma.user.findMany({
-  //       where: {
-  //         role: Role.PROPERTY_MANAGER,
-  //         isDeleted: false,
-  //         status: 'ACTIVE',
-  //         ...(search && {
-  //           OR: [
-  //             { name: { contains: search, mode: 'insensitive' } },
-  //             { email: { contains: search, mode: 'insensitive' } },
-  //           ],
-  //         }),
-  //       },
-  //       select: {
-  //         id: true,
-  //         name: true,
-  //         first_name: true,
-  //         last_name: true,
-  //         email: true,
-  //         avatar: true,
-  //       },
-  //       orderBy: { name: 'asc' },
-  //     });
-  //   }
-
-  // ─── 12. GET AVAILABLE TEMPLATES (for template selection dropdown) ────────────
-
-  //   async getAvailableTemplates() {
-  //     return this.prisma.dashboardTemplate.findMany({
-  //       where: { status: 'ACTIVE' },
-  //       select: {
-  //         id: true,
-  //         name: true,
-  //         createdAt: true,
-  //         criteria: { select: { id: true, name: true } },
-  //       },
-  //       orderBy: { createdAt: 'desc' },
-  //     });
-  //   }
-
   // ─── PRIVATE HELPERS ─────────────────────────────────────────────────────────
 
   private async _assertPropertyExists(propertyId: string) {
