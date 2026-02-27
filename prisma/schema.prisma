@@ -81,6 +81,10 @@ model User {
   // Audit: actions performed by this user
   audit_logs AuditLog[]
 
+  propertyAccesses PropertyAccess[]        @relation("PropertyAccesses")
+  accessRequests   PropertyAccessRequest[] @relation("AccessRequests")
+  reviewedRequests PropertyAccessRequest[] @relation("ReviewedRequests")
+
   @@map("users")
 }
 
@@ -160,12 +164,6 @@ model DashboardTemplate {
   @@map("dashboard_templates")
 }
 
-enum TemplateStatus {
-  ACTIVE
-  INACTIVE
-  DELETED
-}
-
 // ─────────────────────────────────────────
 // PROPERTY (Pillar 3) ← your form creates this
 // ─────────────────────────────────────────
@@ -187,18 +185,14 @@ model Property {
   updatedAt        DateTime       @updatedAt
 
   // Relations
-  propertyManager User?              @relation("PropertyManager", fields: [propertyManagerId], references: [id])
-  activeTemplate  DashboardTemplate? @relation(fields: [activeTemplateId], references: [id])
+  propertyManager User?                   @relation("PropertyManager", fields: [propertyManagerId], references: [id])
+  activeTemplate  DashboardTemplate?      @relation(fields: [activeTemplateId], references: [id])
   dashboard       PropertyDashboard?
   auditLogs       AuditLog[]
+  accesses        PropertyAccess[]
+  accessRequests  PropertyAccessRequest[]
 
   @@map("properties")
-}
-
-enum PropertyStatus {
-  ACTIVE
-  INACTIVE
-  ARCHIVED
 }
 
 // ─────────────────────────────────────────
@@ -277,11 +271,59 @@ model Inspection {
   @@map("inspections")
 }
 
-enum InspectionStatus {
-  DRAFT
-  SUBMITTED
-  APPROVED
-  ARCHIVED
+model PropertyAccess {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  propertyId String
+  userId     String
+
+  grantedBy String // admin or PM user id who approved
+  grantedAt DateTime @default(now())
+
+  // Time-limited access (for insurers, consultants, etc.)
+  expiresAt DateTime?
+
+  // Revocation
+  revokedAt DateTime?
+  revokedBy String?
+
+  // Relations
+  property Property @relation(fields: [propertyId], references: [id])
+  user     User     @relation("PropertyAccesses", fields: [userId], references: [id])
+
+  @@unique([propertyId, userId]) // one row per property+user
+  @@map("property_accesses")
+}
+
+// ── Model 2: Access request lifecycle ────────────────────────────────────────
+//
+// Created when an Authorized Viewer clicks "Request Access".
+// Drives the notification shown to the Property Manager.
+// Once approved → a PropertyAccess row is created automatically.
+
+model PropertyAccessRequest {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  propertyId  String
+  requesterId String // the Authorized Viewer who clicked "Request Access"
+
+  status AccessRequestStatus @default(PENDING)
+
+  // Set when PM/Admin acts on the request
+  reviewedBy String?
+  reviewedAt DateTime?
+
+  // Relations
+  property  Property @relation(fields: [propertyId], references: [id])
+  requester User     @relation("AccessRequests", fields: [requesterId], references: [id])
+  reviewer  User?    @relation("ReviewedRequests", fields: [reviewedBy], references: [id])
+
+  @@unique([propertyId, requesterId]) // one pending request per property+user
+  @@map("property_access_requests")
 }
 
 // ─────────────────────────────────────────
@@ -304,13 +346,6 @@ model MediaFile {
   inspection Inspection @relation(fields: [inspectionId], references: [id])
 
   @@map("media_files")
-}
-
-enum MediaType {
-  PHOTO
-  VIDEO
-  PDF
-  EMBED
 }
 
 // ─────────────────────────────────────────
@@ -401,7 +436,7 @@ model UserLevelNotificationSettings {
   id         String   @id @default(cuid())
   created_at DateTime @default(now())
   updated_at DateTime @default(now())
-  updated_by String?  // admin user id who last changed this
+  updated_by String? // admin user id who last changed this
 
   // Property Manager defaults
   pm_new_property_dashboard_assigned   Boolean @default(true)
@@ -455,4 +490,37 @@ enum UserStatus {
   ACTIVE
   DEACTIVATED
   DELETED
+}
+
+enum PropertyStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum MediaType {
+  PHOTO
+  VIDEO
+  PDF
+  EMBED
+}
+
+enum InspectionStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  ARCHIVED
+}
+
+enum TemplateStatus {
+  ACTIVE
+  INACTIVE
+  DELETED
+}
+
+enum AccessRequestStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  CANCELLED
 }

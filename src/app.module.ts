@@ -15,7 +15,8 @@ import { MailModule } from './mail/mail.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { ProfileSettingModule } from './modules/setting/profiles&account/profile&account.module';
 import { AdminSettingsModule } from './modules/admin/settings/settings.module';
-import { PropertyDashboardModule } from './modules/admin/property-dashboard/property-dashboard.module';
+import { PropertyDashboardModule } from './modules/property-dashboard/property-dashboard.module';
+import { PropertyAccessModule } from './modules/property-access/property-access.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { PropertyDashboardModule } from './modules/admin/property-dashboard/prop
     ProfileSettingModule,
     AdminSettingsModule,
     PropertyDashboardModule,
+    PropertyAccessModule,
   ],
   controllers: [AppController],
   providers: [AppService],
