@@ -23,20 +23,20 @@ export class PropertyDashboardService {
 
   async createProperty(dto: CreatePropertyDto, adminId: string) {
     // Resolve template
-    // let template = dto.templateId
-    //   ? await this.prisma.dashboardTemplate.findFirst({
-    //       where: { id: dto.templateId, status: 'ACTIVE' },
-    //     })
-    //   : await this.prisma.dashboardTemplate.findFirst({
-    //       where: { status: 'ACTIVE' },
-    //       orderBy: { createdAt: 'desc' },
-    //     });
+    let template = dto.templateId
+      ? await this.prisma.dashboardTemplate.findFirst({
+          where: { id: dto.templateId, status: 'ACTIVE' },
+        })
+      : await this.prisma.dashboardTemplate.findFirst({
+          where: { status: 'ACTIVE' },
+          orderBy: { createdAt: 'desc' },
+        });
 
-    // if (!template) {
-    //   throw new BadRequestException(
-    //     'No active dashboard template found. Please create a template first.',
-    //   );
-    // }
+    if (!template) {
+      throw new BadRequestException(
+        'No active dashboard template found. Please create a template first.',
+      );
+    }
 
     // Validate property manager if provided
     if (dto.propertyManagerId) {
@@ -97,7 +97,11 @@ export class PropertyDashboardService {
       return { property, dashboard };
     });
 
-    return result;
+    return {
+      success: true,
+      message: 'Property and dashboard created successfully',
+      data: result,
+    };
   }
 
   // ─── 2. LIST PROPERTIES ─────────────────────────────────────────────────────
@@ -166,7 +170,12 @@ export class PropertyDashboardService {
 
     if (!property)
       throw new NotFoundException(`Property "${propertyId}" not found.`);
-    return property;
+
+    return {
+      success: true,
+      message: 'Property and dashboard retrieved successfully',
+      data: property,
+    };
   }
 
   // ─── 4. UPDATE PROPERTY ──────────────────────────────────────────────────────
@@ -205,7 +214,11 @@ export class PropertyDashboardService {
       },
     });
 
-    return updated;
+    return {
+      success: true,
+      message: 'Property updated successfully',
+      data: updated,
+    };
   }
 
   // ─── 5. SCHEDULE AN INSPECTION ───────────────────────────────────────────────
@@ -233,7 +246,11 @@ export class PropertyDashboardService {
       },
     });
 
-    return updated;
+    return {
+      success: true,
+      message: 'Inspection scheduled successfully',
+      data: updated,
+    };
   }
 
   // ─── 6. ASSIGN / CHANGE PROPERTY MANAGER ────────────────────────────────────
@@ -270,7 +287,11 @@ export class PropertyDashboardService {
       },
     });
 
-    return updated;
+    return {
+      success: true,
+      message: 'Property Manager assigned successfully',
+      data: updated,
+    };
   }
 
   // ─── 7. GET PROPERTY ACCESS LIST ────────────────────────────────────────────
@@ -296,7 +317,11 @@ export class PropertyDashboardService {
       },
     });
 
-    return property;
+    return {
+      success: true,
+      message: 'Property access retrieved successfully',
+      data: property,
+    };
   }
 
   // ─── 8. GRANT ACCESS ─────────────────────────────────────────────────────────
@@ -339,7 +364,11 @@ export class PropertyDashboardService {
       },
     });
 
-    return { message: 'Access granted.', user: updatedUser };
+    return {
+      success: true,
+      message: 'Access granted.',
+      user: updatedUser,
+    };
   }
 
   // ─── 9. REVOKE ACCESS ────────────────────────────────────────────────────────
@@ -375,7 +404,10 @@ export class PropertyDashboardService {
       },
     });
 
-    return { message: 'Access revoked.' };
+    return {
+      success: true,
+      message: 'Access revoked.',
+    };
   }
 
   // ─── 10. SET ACCESS EXPIRATION DATE ──────────────────────────────────────────
@@ -408,50 +440,54 @@ export class PropertyDashboardService {
       },
     });
 
-    return { message: 'Access expiration updated.', user: updatedUser };
+    return {
+      success: true,
+      message: 'Access expiration updated.',
+      user: updatedUser,
+    };
   }
 
   // ─── 11. GET AVAILABLE PROPERTY MANAGERS (for the assign dropdown) ────────────
 
-//   async getAvailablePropertyManagers(search?: string) {
-//     return this.prisma.user.findMany({
-//       where: {
-//         role: Role.PROPERTY_MANAGER,
-//         isDeleted: false,
-//         status: 'ACTIVE',
-//         ...(search && {
-//           OR: [
-//             { name: { contains: search, mode: 'insensitive' } },
-//             { email: { contains: search, mode: 'insensitive' } },
-//           ],
-//         }),
-//       },
-//       select: {
-//         id: true,
-//         name: true,
-//         first_name: true,
-//         last_name: true,
-//         email: true,
-//         avatar: true,
-//       },
-//       orderBy: { name: 'asc' },
-//     });
-//   }
+  //   async getAvailablePropertyManagers(search?: string) {
+  //     return this.prisma.user.findMany({
+  //       where: {
+  //         role: Role.PROPERTY_MANAGER,
+  //         isDeleted: false,
+  //         status: 'ACTIVE',
+  //         ...(search && {
+  //           OR: [
+  //             { name: { contains: search, mode: 'insensitive' } },
+  //             { email: { contains: search, mode: 'insensitive' } },
+  //           ],
+  //         }),
+  //       },
+  //       select: {
+  //         id: true,
+  //         name: true,
+  //         first_name: true,
+  //         last_name: true,
+  //         email: true,
+  //         avatar: true,
+  //       },
+  //       orderBy: { name: 'asc' },
+  //     });
+  //   }
 
   // ─── 12. GET AVAILABLE TEMPLATES (for template selection dropdown) ────────────
 
-//   async getAvailableTemplates() {
-//     return this.prisma.dashboardTemplate.findMany({
-//       where: { status: 'ACTIVE' },
-//       select: {
-//         id: true,
-//         name: true,
-//         createdAt: true,
-//         criteria: { select: { id: true, name: true } },
-//       },
-//       orderBy: { createdAt: 'desc' },
-//     });
-//   }
+  //   async getAvailableTemplates() {
+  //     return this.prisma.dashboardTemplate.findMany({
+  //       where: { status: 'ACTIVE' },
+  //       select: {
+  //         id: true,
+  //         name: true,
+  //         createdAt: true,
+  //         criteria: { select: { id: true, name: true } },
+  //       },
+  //       orderBy: { createdAt: 'desc' },
+  //     });
+  //   }
 
   // ─── PRIVATE HELPERS ─────────────────────────────────────────────────────────
 

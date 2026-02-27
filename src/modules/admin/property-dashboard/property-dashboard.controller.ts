@@ -103,31 +103,6 @@ export class PropertyDashboardController {
       'Triggers a notification to the assigned Property Manager.',
   })
   @ApiResponse({
-    status: 201,
-    description: 'Property and Dashboard created successfully.',
-    schema: {
-      example: {
-        property: {
-          id: 'clxyz001',
-          name: 'Sunset Office Complex',
-          address: '1234 Sunset Blvd, Los Angeles, CA 90028',
-          propertyType: 'Commercial',
-          nextInspectionDate: '2025-05-15T00:00:00.000Z',
-          propertyManagerId: 'clxyz002',
-          activeTemplateId: 'clxyz003',
-          status: 'ACTIVE',
-          createdAt: '2025-01-16T02:06:00.000Z',
-        },
-        dashboard: {
-          id: 'clxyz004',
-          propertyId: 'clxyz001',
-          templateId: 'clxyz003',
-          templateSnapshot: [],
-        },
-      },
-    },
-  })
-  @ApiResponse({
     status: 400,
     description: 'No active template found or validation error.',
   })
