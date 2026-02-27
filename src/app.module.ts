@@ -14,6 +14,8 @@ import { PrismaModule } from './prisma/prisma.module';
 import { MailModule } from './mail/mail.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { ProfileSettingModule } from './modules/setting/profiles&account/profile&account.module';
+import { AdminSettingsModule } from './modules/admin/settings/settings.module';
+import { PropertyDashboardModule } from './modules/admin/property-dashboard/property-dashboard.module';
 
 @Module({
   imports: [
@@ -48,6 +50,8 @@ import { ProfileSettingModule } from './modules/setting/profiles&account/profile
     MailModule,
     AdminModule,
     ProfileSettingModule,
+    AdminSettingsModule,
+    PropertyDashboardModule,
   ],
   controllers: [AppController],
   providers: [AppService],

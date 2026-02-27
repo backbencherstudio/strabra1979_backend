@@ -117,19 +117,12 @@ export class AuthService {
     };
 
     const accessToken = this.jwtService.sign(payload, {
-      expiresIn: '1h',
+      expiresIn: '10h',
     });
 
     const refreshToken = this.jwtService.sign(payload, {
       expiresIn: '7d',
     });
-
-    await this.redis.set(
-      `refresh_token:${foundUser.id}`,
-      refreshToken,
-      'EX',
-      60 * 60 * 24 * 7,
-    );
 
     return {
       success: true,

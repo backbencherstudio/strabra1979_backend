@@ -21,25 +21,25 @@ export class CreateUserDto {
 
   @IsNotEmpty()
   @IsEmail()
-  @ApiProperty({ example: 'john@example.com' })
+  @ApiProperty({ example: 'john@gmail.com' })
   email: string;
 
   @IsNotEmpty()
   @IsString()
   @MinLength(8, { message: 'Password must be at least 8 characters' })
-  @ApiProperty({ example: 'password123' })
+  @ApiProperty({ example: '12345678' })
   password: string;
 }
 
 export class LoginDto {
   @IsNotEmpty()
   @IsEmail()
-  @ApiProperty({ example: 'john@example.com' })
+  @ApiProperty({ example: 'john@gmail.com' })
   email: string;
 
   @IsNotEmpty()
   @IsString()
-  @ApiProperty({ example: 'password123' })
+  @ApiProperty({ example: '12345678' })
   password: string;
 }
 
