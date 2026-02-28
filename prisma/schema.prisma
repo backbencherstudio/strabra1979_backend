@@ -142,6 +142,21 @@ model InspectionCriteria {
   //     "type": "document", "isSystem": true, "order": 4 }
   // ]
 
+  // { "label": "Additional Notes/Comments", "placeholder": "Type Any Additional Notes/Comments" }
+  additionalNotesConfig Json
+
+  // Only stores the available status options the inspector can pick from
+  // { "statuses": ["Urgent", "Maintenance", "Replacement Planning"] }
+  repairPlanningConfig Json?
+
+  // Score range thresholds + remaining life year ranges
+  // {
+  //   "good": { "minScore": 70, "maxScore": 100, "remainingLifeMinYears": 5, "remainingLifeMaxYears": 7 },
+  //   "fair": { "minScore": 30, "maxScore": 69,  "remainingLifeMinYears": 3, "remainingLifeMaxYears": 5 },
+  //   "poor": { "minScore": 0,  "maxScore": 29,  "remainingLifeMinYears": 0, "remainingLifeMaxYears": 2 }
+  // }
+  healthThresholdConfig Json
+
   templates DashboardTemplate[]
 
   @@map("inspection_criteria")

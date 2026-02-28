@@ -14,18 +14,11 @@ import {
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// INITIAL FIELD DTOs  (sent by user at criteria creation time)
-// These all become isSystem=true — locked from deletion forever.
-// key is user-supplied so inspection records can reference them by a stable,
-// meaningful identifier (e.g. "roofSystemType" in headerData JSON).
-// order is derived from array position, not sent by the user.
-// ─────────────────────────────────────────────────────────────────────────────
-
 export class InitialHeaderFieldDto {
   @ApiProperty({
     example: 'roofSystemType',
-    description: 'Unique camelCase key. Used as the field identifier in inspection headerData JSON.',
+    description:
+      'Unique camelCase key. Used as the field identifier in inspection headerData JSON.',
   })
   @IsString()
   @IsNotEmpty()
@@ -45,7 +38,10 @@ export class InitialHeaderFieldDto {
   @IsBoolean()
   required: boolean;
 
-  @ApiProperty({ example: true, description: 'If true, renders as a dropdown select' })
+  @ApiProperty({
+    example: true,
+    description: 'If true, renders as a dropdown select',
+  })
   @IsBoolean()
   isDropdown: boolean;
 
@@ -64,7 +60,8 @@ export class InitialHeaderFieldDto {
 export class InitialScoringCategoryDto {
   @ApiProperty({
     example: 'surfaceCondition',
-    description: 'Unique camelCase key. Used as the category identifier in inspection scores JSON.',
+    description:
+      'Unique camelCase key. Used as the category identifier in inspection scores JSON.',
   })
   @IsString()
   @IsNotEmpty()
@@ -75,7 +72,10 @@ export class InitialScoringCategoryDto {
   @IsNotEmpty()
   label: string;
 
-  @ApiProperty({ example: 25, description: 'Max points (1–100). Total across all must not exceed 100.' })
+  @ApiProperty({
+    example: 25,
+    description: 'Max points (1–100). Total across all must not exceed 100.',
+  })
   @IsInt()
   @Min(1)
   @Max(100)
@@ -103,14 +103,16 @@ export class InitialMediaFieldDto {
 
   @ApiProperty({
     example: true,
-    description: 'true → file upload widget (Aerial Map style). Set isEmbedded=false.',
+    description:
+      'true → file upload widget (Aerial Map style). Set isEmbedded=false.',
   })
   @IsBoolean()
   isMediaFile: boolean;
 
   @ApiProperty({
     example: false,
-    description: 'true → URL/iframe textarea (3D Tours style). Set isMediaFile=false.',
+    description:
+      'true → URL/iframe textarea (3D Tours style). Set isMediaFile=false.',
   })
   @IsBoolean()
   isEmbedded: boolean;
@@ -128,6 +130,126 @@ export class InitialMediaFieldDto {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// NTE CONFIG DTO
+// Controls the NTE (Not-To-Exceed) input field shown on the inspection form.
+// No enable/disable — always visible. Only label and placeholder are configurable.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADDITIONAL NOTES CONFIG DTO
+// Controls the Additional Notes/Comments textarea on the inspection form.
+// No enable/disable — always visible.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdditionalNotesConfigDto {
+  @ApiPropertyOptional({
+    example: 'Additional Notes/Comments',
+    description: 'Label shown above the notes textarea',
+  })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  label?: string;
+
+  @ApiPropertyOptional({
+    example: 'Type Any Additional Notes/Comments',
+    description: 'Placeholder text inside the notes textarea',
+  })
+  @IsOptional()
+  @IsString()
+  placeholder?: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HEALTH THRESHOLD CONFIG DTOs
+// Defines score ranges and remaining life year estimates for each health tier.
+// The three tiers (good/fair/poor) are fixed — only their values are configurable.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class HealthTierDto {
+  @ApiProperty({
+    example: 70,
+    description: 'Minimum score for this health tier (inclusive)',
+  })
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  minScore: number;
+
+  @ApiProperty({
+    example: 100,
+    description: 'Maximum score for this health tier (inclusive)',
+  })
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  maxScore: number;
+
+  @ApiProperty({
+    example: 5,
+    description: 'Minimum estimated remaining life in years for this tier',
+  })
+  @IsInt()
+  @Min(0)
+  remainingLifeMinYears: number;
+
+  @ApiProperty({
+    example: 7,
+    description: 'Maximum estimated remaining life in years for this tier',
+  })
+  @IsInt()
+  @Min(0)
+  remainingLifeMaxYears: number;
+}
+
+export class HealthThresholdConfigDto {
+  @ApiProperty({
+    description:
+      'Score range and remaining life config for the Good tier (e.g. 70–100)',
+    type: HealthTierDto,
+    example: {
+      minScore: 70,
+      maxScore: 100,
+      remainingLifeMinYears: 5,
+      remainingLifeMaxYears: 7,
+    },
+  })
+  @ValidateNested()
+  @Type(() => HealthTierDto)
+  good: HealthTierDto;
+
+  @ApiProperty({
+    description:
+      'Score range and remaining life config for the Fair tier (e.g. 30–69)',
+    type: HealthTierDto,
+    example: {
+      minScore: 30,
+      maxScore: 69,
+      remainingLifeMinYears: 3,
+      remainingLifeMaxYears: 5,
+    },
+  })
+  @ValidateNested()
+  @Type(() => HealthTierDto)
+  fair: HealthTierDto;
+
+  @ApiProperty({
+    description:
+      'Score range and remaining life config for the Poor tier (e.g. 0–29)',
+    type: HealthTierDto,
+    example: {
+      minScore: 0,
+      maxScore: 29,
+      remainingLifeMinYears: 0,
+      remainingLifeMaxYears: 2,
+    },
+  })
+  @ValidateNested()
+  @Type(() => HealthTierDto)
+  poor: HealthTierDto;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // CRITERIA DTOs
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -137,7 +259,9 @@ export class CreateInspectionCriteriaDto {
   @IsNotEmpty()
   name: string;
 
-  @ApiPropertyOptional({ example: 'Default criteria for all commercial roof inspections' })
+  @ApiPropertyOptional({
+    example: 'Default criteria for all commercial roof inspections',
+  })
   @IsOptional()
   @IsString()
   description?: string;
@@ -149,10 +273,37 @@ export class CreateInspectionCriteriaDto {
       'Keys must be unique. Order is derived from array position.',
     type: [InitialHeaderFieldDto],
     example: [
-      { key: 'inspectionTitle', label: 'Inspection Title', placeholder: 'Enter title',       required: true,  isDropdown: false },
-      { key: 'propertyType',    label: 'Property Type',    placeholder: 'Select type',        required: false, isDropdown: true, options: ['Commercial', 'Residential'] },
-      { key: 'roofSystemType',  label: 'Roof System Type', placeholder: 'Select roof system', required: false, isDropdown: true, options: ['TPO', 'Metal', 'Shingle'] },
-      { key: 'drainageType',    label: 'Drainage Type',    placeholder: 'Select drainage',    required: false, isDropdown: true, options: ['Internal', 'External'] },
+      {
+        key: 'inspectionTitle',
+        label: 'Inspection Title',
+        placeholder: 'Enter title',
+        required: true,
+        isDropdown: false,
+      },
+      {
+        key: 'propertyType',
+        label: 'Property Type',
+        placeholder: 'Select type',
+        required: false,
+        isDropdown: true,
+        options: ['Commercial', 'Residential'],
+      },
+      {
+        key: 'roofSystemType',
+        label: 'Roof System Type',
+        placeholder: 'Select roof system',
+        required: false,
+        isDropdown: true,
+        options: ['TPO', 'Metal', 'Shingle'],
+      },
+      {
+        key: 'drainageType',
+        label: 'Drainage Type',
+        placeholder: 'Select drainage',
+        required: false,
+        isDropdown: true,
+        options: ['Internal', 'External'],
+      },
     ],
   })
   @IsArray()
@@ -168,12 +319,20 @@ export class CreateInspectionCriteriaDto {
       'Keys must be unique. Total maxPoints must not exceed 100.',
     type: [InitialScoringCategoryDto],
     example: [
-      { key: 'surfaceCondition', label: 'Surface Condition',          maxPoints: 25 },
-      { key: 'seamsFlashings',   label: 'Seams & Flashings',          maxPoints: 20 },
-      { key: 'drainagePonding',  label: 'Drainage & Ponding',         maxPoints: 15 },
-      { key: 'penetrations',     label: 'Penetrations & Accessories', maxPoints: 10 },
-      { key: 'repairsHistory',   label: 'Repairs & Patch History',    maxPoints: 10 },
-      { key: 'ageExpectedLife',  label: 'Age vs. Expected Life',      maxPoints: 10 },
+      { key: 'surfaceCondition', label: 'Surface Condition', maxPoints: 25 },
+      { key: 'seamsFlashings', label: 'Seams & Flashings', maxPoints: 20 },
+      { key: 'drainagePonding', label: 'Drainage & Ponding', maxPoints: 15 },
+      {
+        key: 'penetrations',
+        label: 'Penetrations & Accessories',
+        maxPoints: 10,
+      },
+      {
+        key: 'repairsHistory',
+        label: 'Repairs & Patch History',
+        maxPoints: 10,
+      },
+      { key: 'ageExpectedLife', label: 'Age vs. Expected Life', maxPoints: 10 },
     ],
   })
   @IsArray()
@@ -191,10 +350,36 @@ export class CreateInspectionCriteriaDto {
       'Keys must be unique.',
     type: [InitialMediaFieldDto],
     example: [
-      { key: 'mediaFiles', label: 'Media Files', placeholder: 'Upload Media file',             isMediaFile: true,  isEmbedded: false, accept: ['image/*', 'video/*'] },
-      { key: 'aerialMap',  label: 'Aerial Map',  placeholder: 'Upload your file.',             isMediaFile: true,  isEmbedded: false, accept: ['image/*'] },
-      { key: 'tour3d',     label: '3D Tours',    placeholder: 'Paste Source URL / iframe Code', isMediaFile: false, isEmbedded: true },
-      { key: 'documents',  label: 'Documents',   placeholder: 'Add Documents',                 isMediaFile: false, isEmbedded: false },
+      {
+        key: 'mediaFiles',
+        label: 'Media Files',
+        placeholder: 'Upload Media file',
+        isMediaFile: true,
+        isEmbedded: false,
+        accept: ['image/*', 'video/*'],
+      },
+      {
+        key: 'aerialMap',
+        label: 'Aerial Map',
+        placeholder: 'Upload your file.',
+        isMediaFile: true,
+        isEmbedded: false,
+        accept: ['image/*'],
+      },
+      {
+        key: 'tour3d',
+        label: '3D Tours',
+        placeholder: 'Paste Source URL / iframe Code',
+        isMediaFile: false,
+        isEmbedded: true,
+      },
+      {
+        key: 'documents',
+        label: 'Documents',
+        placeholder: 'Add Documents',
+        isMediaFile: false,
+        isEmbedded: false,
+      },
     ],
   })
   @IsArray()
@@ -202,6 +387,57 @@ export class CreateInspectionCriteriaDto {
   @ValidateNested({ each: true })
   @Type(() => InitialMediaFieldDto)
   mediaFields: InitialMediaFieldDto[];
+
+  @ApiProperty({
+    description: 'Additional Notes/Comments textarea configuration.',
+    type: AdditionalNotesConfigDto,
+    example: {
+      label: 'Additional Notes/Comments',
+      placeholder: 'Type Any Additional Notes/Comments',
+    },
+  })
+  @ValidateNested()
+  @Type(() => AdditionalNotesConfigDto)
+  additionalNotesConfig: AdditionalNotesConfigDto;
+
+//   @ApiProperty({
+//     description: 'Add priority repair planning configuration. ',
+//     type: RepairItemDto,
+//   })
+//   @ValidateNested()
+//   @Type(() => RepairItemDto)
+//   repairPlanningConfig: RepairItemDto[];
+
+  @ApiProperty({
+    description:
+      'Health status threshold configuration. ' +
+      'Defines score ranges and remaining life year estimates for Good, Fair, and Poor tiers. ' +
+      'The overall health label and remaining life shown on the dashboard are derived from these.',
+    type: HealthThresholdConfigDto,
+    example: {
+      good: {
+        minScore: 70,
+        maxScore: 100,
+        remainingLifeMinYears: 5,
+        remainingLifeMaxYears: 7,
+      },
+      fair: {
+        minScore: 30,
+        maxScore: 69,
+        remainingLifeMinYears: 3,
+        remainingLifeMaxYears: 5,
+      },
+      poor: {
+        minScore: 0,
+        maxScore: 29,
+        remainingLifeMinYears: 0,
+        remainingLifeMaxYears: 2,
+      },
+    },
+  })
+  @ValidateNested()
+  @Type(() => HealthThresholdConfigDto)
+  healthThresholdConfig: HealthThresholdConfigDto;
 }
 
 export class UpdateInspectionCriteriaDto {
@@ -236,7 +472,10 @@ export class AddHeaderFieldDto {
   @IsBoolean()
   required: boolean;
 
-  @ApiProperty({ example: false, description: 'If true, renders as a dropdown select' })
+  @ApiProperty({
+    example: false,
+    description: 'If true, renders as a dropdown select',
+  })
   @IsBoolean()
   isDropdown: boolean;
 
@@ -271,7 +510,8 @@ export class UpdateHeaderFieldDto {
 
   @ApiPropertyOptional({
     example: ['Sunny', 'Cloudy', 'Rainy', 'Windy'],
-    description: 'Full replacement options array. To remove an option, send the array without it.',
+    description:
+      'Full replacement options array. To remove an option, send the array without it.',
     type: [String],
   })
   @IsOptional()
@@ -375,4 +615,95 @@ export class UpdateMediaFieldDto {
   @IsArray()
   @IsString({ each: true })
   accept?: string[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONFIG UPDATE DTOs  (PATCH endpoints for each config section)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class UpdateNteConfigDto {
+  @ApiPropertyOptional({ example: 'NTE (Not-To-Exceed)' })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  label?: string;
+
+  @ApiPropertyOptional({ example: 'Enter NTE' })
+  @IsOptional()
+  @IsString()
+  placeholder?: string;
+}
+
+export class UpdateAdditionalNotesConfigDto {
+  @ApiPropertyOptional({ example: 'Additional Notes/Comments' })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  label?: string;
+
+  @ApiPropertyOptional({ example: 'Type Any Additional Notes/Comments' })
+  @IsOptional()
+  @IsString()
+  placeholder?: string;
+}
+
+export class UpdateRepairPlanningConfigDto {
+  @ApiProperty({
+    example: ['Urgent', 'Maintenance', 'Replacement Planning'],
+    description:
+      'Full replacement statuses array. Send the complete list each time.',
+    type: [String],
+  })
+  @IsArray()
+  @ArrayMinSize(1, { message: 'At least one repair status is required' })
+  @IsString({ each: true })
+  statuses: string[];
+}
+
+export class UpdateHealthTierDto {
+  @ApiPropertyOptional({ example: 70 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  minScore?: number;
+
+  @ApiPropertyOptional({ example: 100 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  maxScore?: number;
+
+  @ApiPropertyOptional({ example: 5 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  remainingLifeMinYears?: number;
+
+  @ApiPropertyOptional({ example: 7 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  remainingLifeMaxYears?: number;
+}
+
+export class UpdateHealthThresholdConfigDto {
+  @ApiPropertyOptional({ type: UpdateHealthTierDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UpdateHealthTierDto)
+  good?: UpdateHealthTierDto;
+
+  @ApiPropertyOptional({ type: UpdateHealthTierDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UpdateHealthTierDto)
+  fair?: UpdateHealthTierDto;
+
+  @ApiPropertyOptional({ type: UpdateHealthTierDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UpdateHealthTierDto)
+  poor?: UpdateHealthTierDto;
 }

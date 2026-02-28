@@ -154,6 +154,34 @@ export const INSPECTION_CRITERIA_SEED = {
       accept: null,
     },
   ],
+
+  // ── Additional Notes Config ────────────────────────────────────────────────
+  additionalNotesConfig: {
+    label: 'Additional Notes/Comments',
+    placeholder: 'Type Any Additional Notes/Comments',
+  },
+
+  // ── Health Threshold Config ────────────────────────────────────────────────
+  healthThresholdConfig: {
+    good: {
+      minScore: 70,
+      maxScore: 100,
+      remainingLifeMinYears: 5,
+      remainingLifeMaxYears: 7,
+    },
+    fair: {
+      minScore: 30,
+      maxScore: 69,
+      remainingLifeMinYears: 3,
+      remainingLifeMaxYears: 5,
+    },
+    poor: {
+      minScore: 0,
+      maxScore: 29,
+      remainingLifeMinYears: 0,
+      remainingLifeMaxYears: 2,
+    },
+  },
 };
 
 export const DASHBOARD_TEMPLATE_SEED = {
@@ -327,6 +355,9 @@ async function main() {
         headerFields: INSPECTION_CRITERIA_SEED.headerFields,
         scoringCategories: INSPECTION_CRITERIA_SEED.scoringCategories,
         mediaFields: INSPECTION_CRITERIA_SEED.mediaFields,
+        additionalNotesConfig: INSPECTION_CRITERIA_SEED.additionalNotesConfig,
+        repairPlanningConfig: INSPECTION_CRITERIA_SEED.additionalNotesConfig, //change this later
+        healthThresholdConfig: INSPECTION_CRITERIA_SEED.healthThresholdConfig,
       },
     });
     console.log(

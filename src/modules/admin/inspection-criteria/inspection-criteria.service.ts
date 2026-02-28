@@ -12,15 +12,66 @@ import {
   UpdateHeaderFieldDto,
   AddScoringCategoryDto,
   UpdateScoringCategoryDto,
-  UpdateMediaFieldDto,
   AddMediaFieldDto,
+  UpdateMediaFieldDto,
+  UpdateNteConfigDto,
+  UpdateAdditionalNotesConfigDto,
+  UpdateRepairPlanningConfigDto,
+  UpdateHealthThresholdConfigDto,
 } from './dto/inspection-criteria.dto';
-import {
-  HeaderField,
-  MediaField,
-  ScoringCategory,
-} from './inspection-criteria.types';
-import { INSPECTION_CRITERIA } from './inspection-criteria.const';
+
+// ─── Internal types ───────────────────────────────────────────────────────────
+
+interface HeaderField {
+  key: string;
+  label: string;
+  type: 'text' | 'dropdown';
+  placeholder: string;
+  required: boolean;
+  isSystem: boolean;
+  order: number;
+  options: string[] | null;
+}
+
+interface ScoringCategory {
+  key: string;
+  label: string;
+  maxPoints: number;
+  isSystem: boolean;
+  order: number;
+}
+
+interface MediaField {
+  key: string;
+  label: string;
+  placeholder: string;
+  type: 'file' | 'embed' | 'document';
+  isSystem: boolean;
+  order: number;
+  accept: string[] | null;
+}
+
+interface AdditionalNotesConfig {
+  label: string;
+  placeholder: string;
+}
+
+interface RepairPlanningConfig {
+  status: string;
+}
+
+interface HealthTier {
+  minScore: number;
+  maxScore: number;
+  remainingLifeMinYears: number;
+  remainingLifeMaxYears: number;
+}
+
+interface HealthThresholdConfig {
+  good: HealthTier;
+  fair: HealthTier;
+  poor: HealthTier;
+}
 
 @Injectable()
 export class InspectionCriteriaService {
@@ -31,13 +82,88 @@ export class InspectionCriteriaService {
   // ─────────────────────────────────────────────────────────────────────────
 
   async create(dto: CreateInspectionCriteriaDto) {
+    // Guard: unique keys within each array
+    this._assertUniqueKeys(
+      dto.headerFields.map((f) => f.key),
+      'headerFields',
+    );
+    this._assertUniqueKeys(
+      dto.scoringCategories.map((c) => c.key),
+      'scoringCategories',
+    );
+    this._assertUniqueKeys(
+      dto.mediaFields.map((m) => m.key),
+      'mediaFields',
+    );
+
+    // Guard: total scoring points <= 100
+    const totalPoints = dto.scoringCategories.reduce(
+      (sum, c) => sum + c.maxPoints,
+      0,
+    );
+    if (totalPoints > 100) {
+      throw new BadRequestException(
+        `Total scoringCategories maxPoints is ${totalPoints} — must not exceed 100.`,
+      );
+    }
+
+    // Guard: health tier score ranges must not overlap and must cover 0–100
+    this._assertHealthTiers(dto.healthThresholdConfig);
+
+    // Map user input → internal shapes (isSystem=true, order from array position)
+    const headerFields: HeaderField[] = dto.headerFields.map((f, i) => ({
+      key: f.key,
+      label: f.label,
+      type: f.isDropdown ? 'dropdown' : 'text',
+      placeholder: f.placeholder ?? '',
+      required: f.required,
+      isSystem: true,
+      order: i + 1,
+      options: f.isDropdown ? (f.options ?? null) : null,
+    }));
+
+    const scoringCategories: ScoringCategory[] = dto.scoringCategories.map(
+      (c, i) => ({
+        key: c.key,
+        label: c.label,
+        maxPoints: c.maxPoints,
+        isSystem: true,
+        order: i + 1,
+      }),
+    );
+
+    const mediaFields: MediaField[] = dto.mediaFields.map((m, i) => ({
+      key: m.key,
+      label: m.label,
+      placeholder: m.placeholder ?? '',
+      type: m.isMediaFile ? 'file' : m.isEmbedded ? 'embed' : 'document',
+      isSystem: true,
+      order: i + 1,
+      accept: m.isMediaFile ? (m.accept ?? null) : null,
+    }));
+
+    const additionalNotesConfig: AdditionalNotesConfig = {
+      label: dto.additionalNotesConfig.label ?? 'Additional Notes/Comments',
+      placeholder:
+        dto.additionalNotesConfig.placeholder ??
+        'Type Any Additional Notes/Comments',
+    };
+
+    const healthThresholdConfig: HealthThresholdConfig = {
+      good: { ...dto.healthThresholdConfig.good },
+      fair: { ...dto.healthThresholdConfig.fair },
+      poor: { ...dto.healthThresholdConfig.poor },
+    };
+
     const result = await this.prisma.inspectionCriteria.create({
       data: {
         name: dto.name,
         description: dto.description,
-        headerFields: INSPECTION_CRITERIA.headerFields as any,
-        scoringCategories: INSPECTION_CRITERIA.scoringCategories as any,
-        mediaFields: INSPECTION_CRITERIA.mediaFields as any,
+        headerFields: headerFields as any,
+        scoringCategories: scoringCategories as any,
+        mediaFields: mediaFields as any,
+        additionalNotesConfig: additionalNotesConfig as any,
+        healthThresholdConfig: healthThresholdConfig as any,
       },
     });
 
@@ -52,7 +178,6 @@ export class InspectionCriteriaService {
     const result = await this.prisma.inspectionCriteria.findMany({
       orderBy: { createdAt: 'desc' },
     });
-
     return {
       success: true,
       message: 'Inspection criteria retrieved successfully',
@@ -75,7 +200,6 @@ export class InspectionCriteriaService {
       where: { id },
       data: { ...dto },
     });
-
     return {
       success: true,
       message: 'Inspection criteria updated successfully',
@@ -87,11 +211,8 @@ export class InspectionCriteriaService {
     await this._assertCriteriaExists(id);
 
     const usedInTemplate = await this.prisma.dashboardTemplate.findFirst({
-      where: {
-        criteriaId: id,
-      },
+      where: { criteriaId: id },
     });
-
     if (usedInTemplate) {
       throw new BadRequestException(
         'Cannot delete criteria. It is used by one or more dashboard templates.',
@@ -114,7 +235,6 @@ export class InspectionCriteriaService {
 
   async getHeaderFields(criteriaId: string) {
     const criteria = await this._assertCriteriaExists(criteriaId);
-
     return {
       success: true,
       message: 'Header fields retrieved successfully',
@@ -158,13 +278,11 @@ export class InspectionCriteriaService {
     const fields = criteria.headerFields as unknown as HeaderField[];
 
     const fieldIndex = fields.findIndex((f) => f.key === fieldKey);
-    if (fieldIndex === -1) {
+    if (fieldIndex === -1)
       throw new NotFoundException(`Header field "${fieldKey}" not found.`);
-    }
 
     const field = fields[fieldIndex];
 
-    // System fields: only allow options update (not label/placeholder/required/type)
     if (field.isSystem) {
       if (dto.label || dto.placeholder || dto.required !== undefined) {
         throw new ForbiddenException(
@@ -178,15 +296,13 @@ export class InspectionCriteriaService {
       }
     }
 
-    const updatedField: HeaderField = {
+    fields[fieldIndex] = {
       ...field,
       label: dto.label ?? field.label,
       placeholder: dto.placeholder ?? field.placeholder,
       required: dto.required ?? field.required,
       options: dto.options !== undefined ? dto.options : field.options,
     };
-
-    fields[fieldIndex] = updatedField;
 
     const updated = await this.prisma.inspectionCriteria.update({
       where: { id: criteriaId },
@@ -205,14 +321,11 @@ export class InspectionCriteriaService {
     const fields = criteria.headerFields as unknown as HeaderField[];
 
     const field = fields.find((f) => f.key === fieldKey);
-    if (!field) {
+    if (!field)
       throw new NotFoundException(`Header field "${fieldKey}" not found.`);
-    }
-    if (field.isSystem) {
+    if (field.isSystem)
       throw new ForbiddenException('System fields cannot be deleted.');
-    }
 
-    // Remove and re-order
     const filtered = fields
       .filter((f) => f.key !== fieldKey)
       .map((f, i) => ({ ...f, order: i + 1 }));
@@ -247,7 +360,6 @@ export class InspectionCriteriaService {
     const categories =
       criteria.scoringCategories as unknown as ScoringCategory[];
 
-    // Guard: total maxPoints must not exceed 100
     const currentTotal = categories.reduce((sum, c) => sum + c.maxPoints, 0);
     if (currentTotal + dto.maxPoints > 100) {
       throw new BadRequestException(
@@ -285,22 +397,19 @@ export class InspectionCriteriaService {
       criteria.scoringCategories as unknown as ScoringCategory[];
 
     const catIndex = categories.findIndex((c) => c.key === categoryKey);
-    if (catIndex === -1) {
+    if (catIndex === -1)
       throw new NotFoundException(
         `Scoring category "${categoryKey}" not found.`,
       );
-    }
 
     const category = categories[catIndex];
 
-    // Guard: system categories — only label can be updated
     if (category.isSystem && dto.maxPoints !== undefined) {
       throw new ForbiddenException(
         'System category maxPoints cannot be changed.',
       );
     }
 
-    // Guard: new total must not exceed 100
     if (dto.maxPoints !== undefined) {
       const totalWithoutThis = categories
         .filter((c) => c.key !== categoryKey)
@@ -336,16 +445,14 @@ export class InspectionCriteriaService {
       criteria.scoringCategories as unknown as ScoringCategory[];
 
     const category = categories.find((c) => c.key === categoryKey);
-    if (!category) {
+    if (!category)
       throw new NotFoundException(
         `Scoring category "${categoryKey}" not found.`,
       );
-    }
-    if (category.isSystem) {
+    if (category.isSystem)
       throw new ForbiddenException(
         'System scoring categories cannot be deleted.',
       );
-    }
 
     const filtered = categories
       .filter((c) => c.key !== categoryKey)
@@ -386,7 +493,6 @@ export class InspectionCriteriaService {
         ? 'embed'
         : 'document';
 
-    // Document slots are system-managed — cannot be added manually
     if (type === 'document') {
       throw new BadRequestException(
         'Document upload slots are system-managed and cannot be added manually.',
@@ -429,8 +535,6 @@ export class InspectionCriteriaService {
 
     const field = fields[fieldIndex];
 
-    // Both system and custom fields: label and placeholder are always editable
-    // accept is editable only for file-type fields; type itself is always locked
     fields[fieldIndex] = {
       ...field,
       label: dto.label ?? field.label,
@@ -480,16 +584,159 @@ export class InspectionCriteriaService {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // ADDITIONAL NOTES CONFIG
+  // ─────────────────────────────────────────────────────────────────────────
+
+  async getAdditionalNotesConfig(criteriaId: string) {
+    const criteria = await this._assertCriteriaExists(criteriaId);
+    return {
+      success: true,
+      message: 'Additional notes config retrieved successfully',
+      data: criteria.additionalNotesConfig,
+    };
+  }
+
+  async updateAdditionalNotesConfig(
+    criteriaId: string,
+    dto: UpdateAdditionalNotesConfigDto,
+  ) {
+    const criteria = await this._assertCriteriaExists(criteriaId);
+    const current =
+      criteria.additionalNotesConfig as unknown as AdditionalNotesConfig;
+
+    const updated = await this.prisma.inspectionCriteria.update({
+      where: { id: criteriaId },
+      data: {
+        additionalNotesConfig: {
+          label: dto.label ?? current.label,
+          placeholder: dto.placeholder ?? current.placeholder,
+        } as any,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Additional notes config updated successfully',
+      data: updated.additionalNotesConfig,
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // REPAIR PLANNING CONFIG
+  // ─────────────────────────────────────────────────────────────────────────
+
+  async getRepairPlanningConfig(criteriaId: string) {
+    const criteria = await this._assertCriteriaExists(criteriaId);
+    return {
+      success: true,
+      message: 'Repair planning config retrieved successfully',
+      data: criteria.repairPlanningConfig,
+    };
+  }
+
+  async updateRepairPlanningConfig(
+    criteriaId: string,
+    dto: UpdateRepairPlanningConfigDto,
+  ) {
+    await this._assertCriteriaExists(criteriaId);
+
+    const updated = await this.prisma.inspectionCriteria.update({
+      where: { id: criteriaId },
+      data: {
+        repairPlanningConfig: { statuses: dto.statuses } as any,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Repair planning config updated successfully',
+      data: updated.repairPlanningConfig,
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // HEALTH THRESHOLD CONFIG
+  // ─────────────────────────────────────────────────────────────────────────
+
+  async getHealthThresholdConfig(criteriaId: string) {
+    const criteria = await this._assertCriteriaExists(criteriaId);
+    return {
+      success: true,
+      message: 'Health threshold config retrieved successfully',
+      data: criteria.healthThresholdConfig,
+    };
+  }
+
+  async updateHealthThresholdConfig(
+    criteriaId: string,
+    dto: UpdateHealthThresholdConfigDto,
+  ) {
+    const criteria = await this._assertCriteriaExists(criteriaId);
+    const current =
+      criteria.healthThresholdConfig as unknown as HealthThresholdConfig;
+
+    // Merge each tier — only update fields that were sent
+    const merged: HealthThresholdConfig = {
+      good: { ...current.good, ...dto.good },
+      fair: { ...current.fair, ...dto.fair },
+      poor: { ...current.poor, ...dto.poor },
+    };
+
+    this._assertHealthTiers(merged);
+
+    const updated = await this.prisma.inspectionCriteria.update({
+      where: { id: criteriaId },
+      data: { healthThresholdConfig: merged as any },
+    });
+
+    return {
+      success: true,
+      message: 'Health threshold config updated successfully',
+      data: updated.healthThresholdConfig,
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // PRIVATE HELPERS
   // ─────────────────────────────────────────────────────────────────────────
+
+  private _assertUniqueKeys(keys: string[], fieldName: string) {
+    const seen = new Set<string>();
+    for (const key of keys) {
+      if (seen.has(key)) {
+        throw new BadRequestException(
+          `Duplicate key "${key}" found in ${fieldName}. All keys must be unique.`,
+        );
+      }
+      seen.add(key);
+    }
+  }
+
+  private _assertHealthTiers(config: {
+    good: HealthTier;
+    fair: HealthTier;
+    poor: HealthTier;
+  }) {
+    for (const [name, tier] of Object.entries(config)) {
+      if (tier.minScore > tier.maxScore) {
+        throw new BadRequestException(
+          `Health tier "${name}": minScore (${tier.minScore}) cannot exceed maxScore (${tier.maxScore}).`,
+        );
+      }
+      if (tier.remainingLifeMinYears > tier.remainingLifeMaxYears) {
+        throw new BadRequestException(
+          `Health tier "${name}": remainingLifeMinYears cannot exceed remainingLifeMaxYears.`,
+        );
+      }
+    }
+  }
 
   private async _assertCriteriaExists(id: string) {
     const criteria = await this.prisma.inspectionCriteria.findUnique({
       where: { id },
     });
-    if (!criteria) {
+    if (!criteria)
       throw new NotFoundException(`InspectionCriteria "${id}" not found.`);
-    }
     return criteria;
   }
 }
