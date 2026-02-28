@@ -18,7 +18,7 @@ const prisma = new PrismaClient({
 // SEED DATA
 // ─────────────────────────────────────────────────────────────────────────────
 
-const INSPECTION_CRITERIA_SEED = {
+export const INSPECTION_CRITERIA_SEED = {
   name: 'Standard Roof Inspection Criteria',
   description:
     'Default criteria for commercial and residential roof inspections. ' +
@@ -31,47 +31,41 @@ const INSPECTION_CRITERIA_SEED = {
       key: 'inspectionTitle',
       label: 'Inspection Title',
       type: 'text',
+      placeholder: 'Enter inspection title',
       required: true,
+      isSystem: true,
+      order: 1,
+      options: null,
     },
     {
       key: 'propertyType',
       label: 'Property Type',
       type: 'dropdown',
-      options: ['Commercial', 'Residential', 'Industrial', 'Mixed Use'],
+      placeholder: 'Select property type',
       required: false,
+      isSystem: true,
+      order: 2,
+      options: ['Commercial', 'Residential'],
     },
     {
       key: 'roofSystemType',
       label: 'Roof System Type',
       type: 'dropdown',
-      options: [
-        'TPO',
-        'Metal',
-        'Shingle',
-        'EPDM',
-        'Modified Bitumen',
-        'Built-Up',
-      ],
+      placeholder: 'Select roof system',
       required: false,
+      isSystem: true,
+      order: 3,
+      options: ['TPO', 'Metal', 'Shingle'],
     },
     {
       key: 'drainageType',
       label: 'Drainage Type',
       type: 'dropdown',
-      options: ['Internal', 'External', 'Scupper', 'Gutters'],
+      placeholder: 'Select drainage type',
       required: false,
-    },
-    {
-      key: 'inspectorName',
-      label: 'Inspector Name',
-      type: 'text',
-      required: true,
-    },
-    {
-      key: 'inspectionDate',
-      label: 'Inspection Date',
-      type: 'date',
-      required: true,
+      isSystem: true,
+      order: 4,
+      options: ['Internal', 'External'],
     },
   ],
 
@@ -81,54 +75,88 @@ const INSPECTION_CRITERIA_SEED = {
       key: 'surfaceCondition',
       label: 'Surface Condition',
       maxPoints: 25,
-      description:
-        'Evaluate blistering, cracking, granule loss, and membrane integrity.',
+      isSystem: true,
+      order: 1,
     },
     {
       key: 'seamsFlashings',
       label: 'Seams & Flashings',
       maxPoints: 20,
-      description:
-        'Inspect all seams, base flashings, counter flashings, and edge metal.',
+      isSystem: true,
+      order: 2,
     },
     {
       key: 'drainagePonding',
       label: 'Drainage & Ponding',
       maxPoints: 15,
-      description:
-        'Check for proper slope, ponding water, clogged drains, and scuppers.',
+      isSystem: true,
+      order: 3,
     },
     {
       key: 'penetrations',
       label: 'Penetrations & Accessories',
       maxPoints: 10,
-      description:
-        'Inspect HVAC curbs, pipe boots, skylights, vents, and all roof penetrations.',
+      isSystem: true,
+      order: 4,
     },
     {
       key: 'repairsHistory',
       label: 'Repairs & Patch History',
       maxPoints: 10,
-      description:
-        'Assess quality and extent of prior repairs, patches, and maintenance.',
+      isSystem: true,
+      order: 5,
     },
     {
       key: 'ageExpectedLife',
       label: 'Age vs. Expected Life',
       maxPoints: 10,
-      description: 'Compare roof age against manufacturer expected lifespan.',
+      isSystem: true,
+      order: 6,
+    },
+  ],
+
+  // Media fields that can be attached to an inspection with photos/videos/docs
+  mediaFields: [
+    {
+      key: 'mediaFiles',
+      label: 'Media Files',
+      placeholder: 'Upload Media file',
+      type: 'file',
+      isSystem: true,
+      order: 1,
+      accept: ['image/*', 'video/*'],
     },
     {
-      key: 'structuralSafety',
-      label: 'Structural Safety',
-      maxPoints: 10,
-      description:
-        'Evaluate deck integrity, sagging, and any structural concerns.',
+      key: 'aerialMap',
+      label: 'Aerial Map',
+      placeholder: 'Upload your file.',
+      type: 'file',
+      isSystem: true,
+      order: 2,
+      accept: ['image/*'],
+    },
+    {
+      key: 'tour3d',
+      label: '3D Tours',
+      placeholder: 'Paste Source URL / iframe Code',
+      type: 'embed',
+      isSystem: true,
+      order: 3,
+      accept: null,
+    },
+    {
+      key: 'documents',
+      label: 'Documents',
+      placeholder: 'Add Documents',
+      type: 'document',
+      isSystem: true,
+      order: 4,
+      accept: null,
     },
   ],
 };
 
-const DASHBOARD_TEMPLATE_SEED = {
+export const DASHBOARD_TEMPLATE_SEED = {
   name: 'Standard Property Dashboard',
 
   // Layout sections rendered on the PropertyDashboard detail page
@@ -298,6 +326,7 @@ async function main() {
         isActive: INSPECTION_CRITERIA_SEED.isActive,
         headerFields: INSPECTION_CRITERIA_SEED.headerFields,
         scoringCategories: INSPECTION_CRITERIA_SEED.scoringCategories,
+        mediaFields: INSPECTION_CRITERIA_SEED.mediaFields,
       },
     });
     console.log(

@@ -17,6 +17,8 @@ import { ProfileSettingModule } from './modules/setting/profiles&account/profile
 import { AdminSettingsModule } from './modules/admin/settings/settings.module';
 import { PropertyDashboardModule } from './modules/property-dashboard/property-dashboard.module';
 import { PropertyAccessModule } from './modules/property-access/property-access.module';
+import { DashboardTemplateModule } from './modules/admin/dashboard-templates/templates.module';
+import { InspectionCriteriaModule } from './modules/admin/inspection-criteria/inspection-criteria.module';
 
 @Module({
   imports: [
@@ -54,6 +56,8 @@ import { PropertyAccessModule } from './modules/property-access/property-access.
     AdminSettingsModule,
     PropertyDashboardModule,
     PropertyAccessModule,
+    InspectionCriteriaModule,
+    DashboardTemplateModule,
   ],
   controllers: [AppController],
   providers: [AppService],

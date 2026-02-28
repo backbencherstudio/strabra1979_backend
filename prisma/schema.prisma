@@ -127,6 +127,21 @@ model InspectionCriteria {
   //   { "key": "ageExpectedLife",   "label": "Age vs. Expected Life",   "maxPoints": 10 }
   // ]
 
+  // Media & document input slots shown in the Media Files tab
+  // type: "file" = upload widget | "embed" = text/iframe input | "document" = doc upload
+  mediaFields Json
+  // Example:
+  // [
+  //   { "key": "mediaFiles",  "label": "Media Files", "placeholder": "Upload Media file",
+  //     "type": "file",     "isSystem": true, "order": 1, "accept": ["image/*","video/*"] },
+  //   { "key": "aerialMap",  "label": "Aerial Map",  "placeholder": "Upload your file.",
+  //     "type": "file",     "isSystem": true, "order": 2, "accept": ["image/*"] },
+  //   { "key": "tour3d",     "label": "3D Tours",    "placeholder": "Paste Source URL / iframe Code",
+  //     "type": "embed",    "isSystem": true, "order": 3 },
+  //   { "key": "documents",  "label": "Documents",   "placeholder": "Add Documents",
+  //     "type": "document", "isSystem": true, "order": 4 }
+  // ]
+
   templates DashboardTemplate[]
 
   @@map("inspection_criteria")
