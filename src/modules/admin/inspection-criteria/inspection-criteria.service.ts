@@ -51,13 +51,18 @@ interface MediaField {
   accept: string[] | null;
 }
 
+interface NteConfig {
+  label: string;
+  placeholder: string;
+}
+
 interface AdditionalNotesConfig {
   label: string;
   placeholder: string;
 }
 
 interface RepairPlanningConfig {
-  status: string;
+  statuses: string[];
 }
 
 interface HealthTier {
@@ -82,7 +87,6 @@ export class InspectionCriteriaService {
   // ─────────────────────────────────────────────────────────────────────────
 
   async create(dto: CreateInspectionCriteriaDto) {
-    // Guard: unique keys within each array
     this._assertUniqueKeys(
       dto.headerFields.map((f) => f.key),
       'headerFields',
@@ -96,7 +100,6 @@ export class InspectionCriteriaService {
       'mediaFields',
     );
 
-    // Guard: total scoring points <= 100
     const totalPoints = dto.scoringCategories.reduce(
       (sum, c) => sum + c.maxPoints,
       0,
@@ -107,10 +110,8 @@ export class InspectionCriteriaService {
       );
     }
 
-    // Guard: health tier score ranges must not overlap and must cover 0–100
     this._assertHealthTiers(dto.healthThresholdConfig);
 
-    // Map user input → internal shapes (isSystem=true, order from array position)
     const headerFields: HeaderField[] = dto.headerFields.map((f, i) => ({
       key: f.key,
       label: f.label,
@@ -142,11 +143,20 @@ export class InspectionCriteriaService {
       accept: m.isMediaFile ? (m.accept ?? null) : null,
     }));
 
+    const nteConfig: NteConfig = {
+      label: dto.nteConfig.label ?? 'NTE (Not-To-Exceed)',
+      placeholder: dto.nteConfig.placeholder ?? 'Enter NTE',
+    };
+
     const additionalNotesConfig: AdditionalNotesConfig = {
       label: dto.additionalNotesConfig.label ?? 'Additional Notes/Comments',
       placeholder:
         dto.additionalNotesConfig.placeholder ??
         'Type Any Additional Notes/Comments',
+    };
+
+    const repairPlanningConfig: RepairPlanningConfig = {
+      statuses: dto.repairPlanningConfig.statuses,
     };
 
     const healthThresholdConfig: HealthThresholdConfig = {
@@ -162,7 +172,9 @@ export class InspectionCriteriaService {
         headerFields: headerFields as any,
         scoringCategories: scoringCategories as any,
         mediaFields: mediaFields as any,
+        nteConfig: nteConfig as any,
         additionalNotesConfig: additionalNotesConfig as any,
+        repairPlanningConfig: repairPlanningConfig as any,
         healthThresholdConfig: healthThresholdConfig as any,
       },
     });
@@ -209,7 +221,6 @@ export class InspectionCriteriaService {
 
   async remove(id: string) {
     await this._assertCriteriaExists(id);
-
     const usedInTemplate = await this.prisma.dashboardTemplate.findFirst({
       where: { criteriaId: id },
     });
@@ -218,7 +229,6 @@ export class InspectionCriteriaService {
         'Cannot delete criteria. It is used by one or more dashboard templates.',
       );
     }
-
     const result = await this.prisma.inspectionCriteria.delete({
       where: { id },
     });
@@ -584,6 +594,40 @@ export class InspectionCriteriaService {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // NTE CONFIG
+  // ─────────────────────────────────────────────────────────────────────────
+
+  async getNteConfig(criteriaId: string) {
+    const criteria = await this._assertCriteriaExists(criteriaId);
+    return {
+      success: true,
+      message: 'NTE config retrieved successfully',
+      data: criteria.nteConfig,
+    };
+  }
+
+  async updateNteConfig(criteriaId: string, dto: UpdateNteConfigDto) {
+    const criteria = await this._assertCriteriaExists(criteriaId);
+    const current = criteria.nteConfig as unknown as NteConfig;
+
+    const updated = await this.prisma.inspectionCriteria.update({
+      where: { id: criteriaId },
+      data: {
+        nteConfig: {
+          label: dto.label ?? current.label,
+          placeholder: dto.placeholder ?? current.placeholder,
+        } as any,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'NTE config updated successfully',
+      data: updated.nteConfig,
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // ADDITIONAL NOTES CONFIG
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -642,9 +686,7 @@ export class InspectionCriteriaService {
 
     const updated = await this.prisma.inspectionCriteria.update({
       where: { id: criteriaId },
-      data: {
-        repairPlanningConfig: { statuses: dto.statuses } as any,
-      },
+      data: { repairPlanningConfig: { statuses: dto.statuses } as any },
     });
 
     return {
@@ -675,7 +717,6 @@ export class InspectionCriteriaService {
     const current =
       criteria.healthThresholdConfig as unknown as HealthThresholdConfig;
 
-    // Merge each tier — only update fields that were sent
     const merged: HealthThresholdConfig = {
       good: { ...current.good, ...dto.good },
       fair: { ...current.fair, ...dto.fair },

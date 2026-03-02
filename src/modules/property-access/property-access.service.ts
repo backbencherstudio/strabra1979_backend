@@ -12,6 +12,7 @@ import {
   RevokeAccessDto,
 } from './dto/property-access.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { AccessRequestStatus } from 'prisma/generated/enums';
 // import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
@@ -37,7 +38,9 @@ export class PropertyAccessService {
       where: { propertyId_userId: { propertyId, userId: requesterId } },
     });
     if (existingAccess && !existingAccess.revokedAt) {
-      throw new ConflictException('You already have access to this property dashboard.');
+      throw new ConflictException(
+        'You already have access to this property dashboard.',
+      );
     }
 
     // Guard: already has a pending request?
@@ -67,7 +70,8 @@ export class PropertyAccessService {
     });
 
     // ── Notify the Property Manager (or Admin if no PM assigned) ─────────
-    const recipientId = property.propertyManagerId ?? await this._getAnyAdminId();
+    const recipientId =
+      property.propertyManagerId ?? (await this._getAnyAdminId());
 
     // if (recipientId) {
     //   await this.notifications.send({
@@ -86,6 +90,55 @@ export class PropertyAccessService {
     // }
 
     return accessRequest;
+  }
+
+  async getAllAccessRequests(filters: {
+    propertyId?: string;
+    status?: AccessRequestStatus;
+    requesterId?: string;
+  }) {
+    const requests = await this.prisma.propertyAccessRequest.findMany({
+      where: {
+        ...(filters.propertyId ? { propertyId: filters.propertyId } : {}),
+        ...(filters.status ? { status: filters.status } : {}),
+        ...(filters.requesterId ? { requesterId: filters.requesterId } : {}),
+      },
+      include: {
+        property: {
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            propertyType: true,
+            status: true,
+          },
+        },
+        requester: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            avatar: true,
+            role: true,
+          },
+        },
+        reviewer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return {
+      success: true,
+      message: 'Access requests retrieved successfully',
+      data: requests,
+    };
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -142,7 +195,7 @@ export class PropertyAccessService {
             grantedBy: reviewerId,
             grantedAt: new Date(),
             expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
-            revokedAt: null,  // clear any previous revocation
+            revokedAt: null, // clear any previous revocation
             revokedBy: null,
           },
         });
@@ -164,19 +217,23 @@ export class PropertyAccessService {
       });
 
       // Notify the requester their access was approved
-    //   await this.notifications.send({
-    //     receiverId: request.requesterId,
-    //     senderId: reviewerId,
-    //     type: 'access_request_approved',
-    //     entityId: request.propertyId,
-    //     text: `Your access request for ${request.property.name} has been approved.`,
-    //     metadata: {
-    //       propertyId: request.propertyId,
-    //       propertyName: request.property.name,
-    //     },
-    //   });
+      //   await this.notifications.send({
+      //     receiverId: request.requesterId,
+      //     senderId: reviewerId,
+      //     type: 'access_request_approved',
+      //     entityId: request.propertyId,
+      //     text: `Your access request for ${request.property.name} has been approved.`,
+      //     metadata: {
+      //       propertyId: request.propertyId,
+      //       propertyName: request.property.name,
+      //     },
+      //   });
 
-      return { message: 'Access approved.', requestId, propertyId: request.propertyId };
+      return {
+        message: 'Access approved.',
+        requestId,
+        propertyId: request.propertyId,
+      };
     }
 
     // ── DECLINED ─────────────────────────────────────────────────────────
@@ -201,23 +258,26 @@ export class PropertyAccessService {
           action: 'access_request_declined',
           entity_type: 'property_access_request',
           entity_id: requestId,
-          metadata: { reason: dto.declineReason, requesterId: request.requesterId },
+          metadata: {
+            reason: dto.declineReason,
+            requesterId: request.requesterId,
+          },
         },
       });
 
       // Notify the requester they were declined
-    //   await this.notifications.send({
-    //     receiverId: request.requesterId,
-    //     senderId: reviewerId,
-    //     type: 'access_request_declined',
-    //     entityId: request.propertyId,
-    //     text: `Your access request for ${request.property.name} was declined.`,
-    //     metadata: {
-    //       propertyId: request.propertyId,
-    //       propertyName: request.property.name,
-    //       reason: dto.declineReason,
-    //     },
-    //   });
+      //   await this.notifications.send({
+      //     receiverId: request.requesterId,
+      //     senderId: reviewerId,
+      //     type: 'access_request_declined',
+      //     entityId: request.propertyId,
+      //     text: `Your access request for ${request.property.name} was declined.`,
+      //     metadata: {
+      //       propertyId: request.propertyId,
+      //       propertyName: request.property.name,
+      //       reason: dto.declineReason,
+      //     },
+      //   });
 
       return { message: 'Access declined.', requestId };
     }
@@ -276,10 +336,7 @@ export class PropertyAccessService {
     // Resolve user by email or id
     const targetUser = await this.prisma.user.findFirst({
       where: {
-        OR: [
-          { id: dto.emailOrUserId },
-          { email: dto.emailOrUserId },
-        ],
+        OR: [{ id: dto.emailOrUserId }, { email: dto.emailOrUserId }],
         isDeleted: false,
       },
     });
@@ -364,7 +421,9 @@ export class PropertyAccessService {
     });
 
     if (!access || access.revokedAt) {
-      throw new NotFoundException('Active access record not found for this user.');
+      throw new NotFoundException(
+        'Active access record not found for this user.',
+      );
     }
 
     await this.prisma.propertyAccess.update({
@@ -397,10 +456,7 @@ export class PropertyAccessService {
       where: {
         propertyId,
         revokedAt: null,
-        OR: [
-          { expiresAt: null },
-          { expiresAt: { gt: new Date() } },
-        ],
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
       },
       include: {
         user: {
@@ -441,7 +497,8 @@ export class PropertyAccessService {
     const property = await this.prisma.property.findUnique({
       where: { id: propertyId },
     });
-    if (!property) throw new NotFoundException(`Property "${propertyId}" not found.`);
+    if (!property)
+      throw new NotFoundException(`Property "${propertyId}" not found.`);
     return property;
   }
 

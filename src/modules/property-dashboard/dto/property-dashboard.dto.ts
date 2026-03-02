@@ -81,14 +81,22 @@ export class ScheduleInspectionDto {
 
 // ─── Assign Property Manager (separate action from property card)
 
-export class AssignPropertyManagerDto {
-  @ApiProperty({
-    description: 'User ID of the Property Manager to assign',
-    example: 'clxyz123abc',
-  })
+export class AssignPropertyUserDto {
+  @ApiProperty({ example: 'clxyz123abc', description: 'User ID to assign' })
   @IsString()
   @IsNotEmpty()
-  propertyManagerId: string;
+  userId: string;
+
+  @ApiPropertyOptional({
+    example: '2025-12-31T00:00:00.000Z',
+    description:
+      'Optional expiry date for time-limited access. ' +
+      'Only applies to non-PROPERTY_MANAGER roles. ' +
+      'Omit or pass null for permanent access.',
+  })
+  @IsOptional()
+  @IsDateString()
+  expiresAt?: string | null;
 }
 
 // ─── Manage Property Access

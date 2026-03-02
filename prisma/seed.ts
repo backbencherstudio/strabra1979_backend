@@ -6,13 +6,9 @@ import { PrismaPg } from '@prisma/adapter-pg';
 
 const connectionString = appConfig().database.url;
 
-const adapter = new PrismaPg({
-  connectionString,
-});
+const adapter = new PrismaPg({ connectionString });
 
-const prisma = new PrismaClient({
-  adapter,
-});
+const prisma = new PrismaClient({ adapter });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SEED DATA
@@ -25,7 +21,7 @@ export const INSPECTION_CRITERIA_SEED = {
     'Covers surface condition, seams, drainage, penetrations, repairs, and age.',
   isActive: true,
 
-  // Input fields shown at the top of the inspection form
+  // ── headerFields Json ───────────────────────────────────────────────────────
   headerFields: [
     {
       key: 'inspectionTitle',
@@ -69,7 +65,7 @@ export const INSPECTION_CRITERIA_SEED = {
     },
   ],
 
-  // Scored categories shown in the checklist — must sum to 100 pts
+  // ── scoringCategories Json — must sum to ≤100 pts ──────────────────────────
   scoringCategories: [
     {
       key: 'surfaceCondition',
@@ -115,7 +111,7 @@ export const INSPECTION_CRITERIA_SEED = {
     },
   ],
 
-  // Media fields that can be attached to an inspection with photos/videos/docs
+  // ── mediaFields Json ────────────────────────────────────────────────────────
   mediaFields: [
     {
       key: 'mediaFiles',
@@ -155,13 +151,28 @@ export const INSPECTION_CRITERIA_SEED = {
     },
   ],
 
-  // ── Additional Notes Config ────────────────────────────────────────────────
+  // ── nteConfig Json ──────────────────────────────────────────────────────────
+  // { "label": "NTE (Not-To-Exceed)", "placeholder": "Enter NTE" }
+  nteConfig: {
+    label: 'NTE (Not-To-Exceed)',
+    placeholder: 'Enter NTE',
+  },
+
+  // ── additionalNotesConfig Json ──────────────────────────────────────────────
+  // { "label": "Additional Notes/Comments", "placeholder": "Type Any Additional Notes/Comments" }
   additionalNotesConfig: {
     label: 'Additional Notes/Comments',
     placeholder: 'Type Any Additional Notes/Comments',
   },
 
-  // ── Health Threshold Config ────────────────────────────────────────────────
+  // ── repairPlanningConfig Json ───────────────────────────────────────────────
+  // { "statuses": ["Urgent", "Maintenance", "Replacement Planning"] }
+  // Only stores the available status options — actual repair items go in Inspection.repairItems
+  repairPlanningConfig: {
+    statuses: ['Urgent', 'Maintenance', 'Replacement Planning'],
+  },
+
+  // ── healthThresholdConfig Json ──────────────────────────────────────────────
   healthThresholdConfig: {
     good: {
       minScore: 70,
@@ -187,8 +198,6 @@ export const INSPECTION_CRITERIA_SEED = {
 export const DASHBOARD_TEMPLATE_SEED = {
   name: 'Standard Property Dashboard',
 
-  // Layout sections rendered on the PropertyDashboard detail page
-  // Each section type maps to a React/frontend component
   sections: [
     {
       order: 1,
@@ -232,7 +241,7 @@ export const DASHBOARD_TEMPLATE_SEED = {
       type: 'aerial_map',
       label: 'Aerial Map',
       config: {
-        embedType: 'url', // renders aerialMapUrl from Inspection as an iframe/image
+        embedType: 'url', // renders MediaFile with mediaFieldKey="aerialMap"
         placeholder: 'No aerial map available for this inspection.',
       },
     },
@@ -241,7 +250,7 @@ export const DASHBOARD_TEMPLATE_SEED = {
       type: 'tour_3d',
       label: '3D Roof Tour',
       config: {
-        embedType: 'iframe', // renders tourUrl from Inspection as an iframe
+        embedType: 'iframe', // renders MediaFile with mediaFieldKey="tour3d"
         placeholder: 'No 3D tour available for this inspection.',
       },
     },
@@ -250,16 +259,8 @@ export const DASHBOARD_TEMPLATE_SEED = {
       type: 'repair_planning',
       label: 'Priority Repair Planning',
       config: {
-        priorityLevels: [
-          { key: 'urgent', label: 'Urgent', color: '#EF4444' },
-          { key: 'recommended', label: 'Recommended', color: '#F59E0B' },
-          { key: 'maintenance', label: 'Maintenance', color: '#3B82F6' },
-          {
-            key: 'replacement_planning',
-            label: 'Replacement Planning',
-            color: '#8B5CF6',
-          },
-        ],
+        // Status options come from criteria.repairPlanningConfig.statuses at runtime
+        // Actual items come from Inspection.repairItems
       },
     },
     {
@@ -267,7 +268,6 @@ export const DASHBOARD_TEMPLATE_SEED = {
       type: 'roof_health_rating',
       label: 'Roof Health Rating',
       config: {
-        // Renders the per-category scoring sliders from InspectionCriteria
         showNotes: true,
         showMaxPoints: true,
       },
@@ -277,8 +277,9 @@ export const DASHBOARD_TEMPLATE_SEED = {
       type: 'additional_info',
       label: 'Additional Information',
       config: {
+        // Labels come from criteria.nteConfig and criteria.additionalNotesConfig at runtime
+        // Values come from Inspection.nteValue and Inspection.additionalComments
         fields: ['nteValue', 'additionalComments'],
-        nteLabel: 'NTE (Not to Exceed)',
         nteCurrency: 'USD',
       },
     },
@@ -290,7 +291,7 @@ export const DASHBOARD_TEMPLATE_SEED = {
         showUploadDate: true,
         showFileSize: true,
         showVersion: true,
-        allowInBrowserView: true, // PDF viewer in modal, no download required
+        allowInBrowserView: true,
         pageSize: 5,
       },
     },
@@ -315,7 +316,6 @@ async function main() {
 
   for (const role of roles) {
     const email = `${role.toLowerCase()}@gmail.com`;
-
     const existing = await prisma.user.findUnique({ where: { email } });
 
     if (existing) {
@@ -352,12 +352,16 @@ async function main() {
         name: INSPECTION_CRITERIA_SEED.name,
         description: INSPECTION_CRITERIA_SEED.description,
         isActive: INSPECTION_CRITERIA_SEED.isActive,
-        headerFields: INSPECTION_CRITERIA_SEED.headerFields,
-        scoringCategories: INSPECTION_CRITERIA_SEED.scoringCategories,
-        mediaFields: INSPECTION_CRITERIA_SEED.mediaFields,
-        additionalNotesConfig: INSPECTION_CRITERIA_SEED.additionalNotesConfig,
-        repairPlanningConfig: INSPECTION_CRITERIA_SEED.additionalNotesConfig, //change this later
-        healthThresholdConfig: INSPECTION_CRITERIA_SEED.healthThresholdConfig,
+        headerFields: INSPECTION_CRITERIA_SEED.headerFields as any,
+        scoringCategories: INSPECTION_CRITERIA_SEED.scoringCategories as any,
+        mediaFields: INSPECTION_CRITERIA_SEED.mediaFields as any,
+        nteConfig: INSPECTION_CRITERIA_SEED.nteConfig as any,
+        additionalNotesConfig:
+          INSPECTION_CRITERIA_SEED.additionalNotesConfig as any,
+        repairPlanningConfig:
+          INSPECTION_CRITERIA_SEED.repairPlanningConfig as any,
+        healthThresholdConfig:
+          INSPECTION_CRITERIA_SEED.healthThresholdConfig as any,
       },
     });
     console.log(
@@ -379,7 +383,7 @@ async function main() {
         name: DASHBOARD_TEMPLATE_SEED.name,
         status: 'ACTIVE',
         criteriaId: criteria.id,
-        sections: DASHBOARD_TEMPLATE_SEED.sections,
+        sections: DASHBOARD_TEMPLATE_SEED.sections as any,
       },
     });
     console.log(
