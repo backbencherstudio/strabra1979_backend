@@ -19,6 +19,7 @@ import { PropertyDashboardModule } from './modules/property-dashboard/property-d
 import { PropertyAccessModule } from './modules/property-access/property-access.module';
 import { DashboardTemplateModule } from './modules/admin/dashboard-templates/templates.module';
 import { InspectionCriteriaModule } from './modules/admin/inspection-criteria/inspection-criteria.module';
+import { InspectionModule } from './modules/inspections/inspections.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { InspectionCriteriaModule } from './modules/admin/inspection-criteria/in
     PropertyAccessModule,
     InspectionCriteriaModule,
     DashboardTemplateModule,
+    InspectionModule,
   ],
   controllers: [AppController],
   providers: [AppService],

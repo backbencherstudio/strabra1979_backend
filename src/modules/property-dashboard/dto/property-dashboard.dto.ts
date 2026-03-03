@@ -61,7 +61,7 @@ export class CreatePropertyDto {
   @ApiPropertyOptional({
     description:
       'Dashboard Template ID to use. If omitted the system will use the default active template.',
-    example: 'cmm4hgov50001sku8wd0n3rzq',
+    example: 'cmm8zctum0000dgu8omd07wuo',
   })
   @IsOptional()
   @IsString()

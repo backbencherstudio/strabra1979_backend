@@ -30,8 +30,10 @@ import {
 import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { OptionalJwtGuard } from './guards/jwt-optional.guard';
+import { SWAGGER_AUTH } from 'src/common/swagger/swagger-auth';
 
 @ApiTags('auth')
+@ApiBearerAuth(SWAGGER_AUTH.admin)
 @Controller('auth')
 export class AuthController {
   constructor(private authService: AuthService) {}

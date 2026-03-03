@@ -1,0 +1,72 @@
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsNumber,
+  IsArray,
+  IsObject,
+  IsPositive,
+  ValidateNested,
+  Min,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+export class RepairItemDto {
+  @ApiProperty({ example: 'Emergency Leak Repair' })
+  @IsString() @IsNotEmpty()
+  title: string;
+
+  @ApiProperty({ example: 'Urgent', description: 'Must match criteria.repairPlanningConfig.statuses' })
+  @IsString() @IsNotEmpty()
+  status: string;
+
+  @ApiPropertyOptional({ example: 'Moisture stains on north parapet wall...' })
+  @IsOptional() @IsString()
+  description?: string;
+}
+
+export class SubmitInspectionDto {
+  @ApiProperty({
+    description: 'Key-value answers for criteria.headerFields. Keys must match criteria.headerFields[].key. Required fields must be present.',
+    example: { inspectionTitle: '2024 Annual Roof', propertyType: 'Commercial', roofSystemType: 'TPO', drainageType: 'Internal' },
+  })
+  @IsObject()
+  headerData: Record<string, string>;
+
+  @ApiProperty({
+    description: 'Scores keyed by criteria.scoringCategories[].key. score must be 0..maxPoints.',
+    example: { surfaceCondition: { score: 22, notes: 'Minor cracks' }, seamsFlashings: { score: 18, notes: '' } },
+  })
+  @IsObject()
+  scores: Record<string, { score: number; notes?: string }>;
+
+  @ApiPropertyOptional({
+    description: 'Repair items. Each status must match criteria.repairPlanningConfig.statuses.',
+    type: [RepairItemDto],
+    example: [{ title: 'Emergency Leak Repair', status: 'Urgent', description: 'Moisture stains...' }],
+  })
+  @IsOptional() @IsArray()
+  @ValidateNested({ each: true }) @Type(() => RepairItemDto)
+  repairItems?: RepairItemDto[];
+
+  @ApiPropertyOptional({ example: 7500, description: 'NTE value. Label from criteria.nteConfig.label.' })
+  @IsOptional() @IsNumber() @IsPositive()
+  nteValue?: number;
+
+  @ApiPropertyOptional({ example: 'No active leaks at time of inspection.' })
+  @IsOptional() @IsString()
+  additionalComments?: string;
+
+  @ApiPropertyOptional({ example: '2024-06-15T09:00:00.000Z', description: 'Defaults to now.' })
+  @IsOptional() @IsString()
+  inspectedAt?: string;
+
+  @ApiPropertyOptional({
+    description: 'Maps each uploaded file to its criteria slot. Index matches files[] array. Keys must match criteria.mediaFields[].key.',
+    example: ['mediaFiles', 'mediaFiles', 'aerialMap', 'tour3d'],
+    type: [String],
+  })
+  @IsOptional() @IsArray() @IsString({ each: true })
+  mediaFieldKeys?: string[];
+}
