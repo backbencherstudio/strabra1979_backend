@@ -1,0 +1,1173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Notification Socket Tester</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      :root {
+        --bg: #0a0a0f;
+        --surface: #111118;
+        --border: #1e1e2e;
+        --accent: #6c63ff;
+        --accent2: #00e5ff;
+        --green: #00ff88;
+        --red: #ff4560;
+        --yellow: #ffd166;
+        --text: #e2e2f0;
+        --muted: #5a5a7a;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: 'Syne', sans-serif;
+        min-height: 100vh;
+        overflow-x: hidden;
+      }
+
+      /* Grid background */
+      body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        background-image: linear-gradient(
+            rgba(108, 99, 255, 0.03) 1px,
+            transparent 1px
+          ),
+          linear-gradient(90deg, rgba(108, 99, 255, 0.03) 1px, transparent 1px);
+        background-size: 40px 40px;
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      .mono {
+        font-family: 'JetBrains Mono', monospace;
+      }
+
+      /* Status dot */
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        display: inline-block;
+        flex-shrink: 0;
+      }
+      .dot-green {
+        background: var(--green);
+        box-shadow: 0 0 8px var(--green);
+        animation: pulse-green 2s infinite;
+      }
+      .dot-red {
+        background: var(--red);
+        box-shadow: 0 0 8px var(--red);
+      }
+      .dot-yellow {
+        background: var(--yellow);
+        box-shadow: 0 0 8px var(--yellow);
+        animation: pulse-yellow 1.5s infinite;
+      }
+
+      @keyframes pulse-green {
+        0%,
+        100% {
+          opacity: 1;
+          box-shadow: 0 0 8px var(--green);
+        }
+        50% {
+          opacity: 0.6;
+          box-shadow: 0 0 16px var(--green);
+        }
+      }
+      @keyframes pulse-yellow {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.5;
+        }
+      }
+
+      /* Panel */
+      .panel {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      .panel-header {
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      /* Input */
+      input,
+      select,
+      textarea {
+        background: #0d0d14;
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 13px;
+        width: 100%;
+        transition: border-color 0.2s;
+        outline: none;
+      }
+      input:focus,
+      select:focus,
+      textarea:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px rgba(108, 99, 255, 0.15);
+      }
+      select option {
+        background: #111118;
+      }
+
+      /* Buttons */
+      .btn {
+        border: none;
+        cursor: pointer;
+        border-radius: 8px;
+        font-family: 'Syne', sans-serif;
+        font-weight: 700;
+        font-size: 13px;
+        letter-spacing: 0.04em;
+        transition: all 0.15s;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .btn:active {
+        transform: scale(0.97);
+      }
+
+      .btn-primary {
+        background: var(--accent);
+        color: #fff;
+        padding: 9px 18px;
+      }
+      .btn-primary:hover {
+        background: #7c74ff;
+        box-shadow: 0 0 16px rgba(108, 99, 255, 0.4);
+      }
+      .btn-primary:disabled {
+        background: #2a2a3a;
+        color: var(--muted);
+        cursor: not-allowed;
+      }
+
+      .btn-danger {
+        background: transparent;
+        border: 1px solid var(--red);
+        color: var(--red);
+        padding: 9px 18px;
+      }
+      .btn-danger:hover {
+        background: rgba(255, 69, 96, 0.1);
+      }
+      .btn-danger:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .btn-ghost {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        padding: 7px 14px;
+        font-size: 12px;
+      }
+      .btn-ghost:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      .btn-sm {
+        padding: 5px 12px;
+        font-size: 11px;
+        border-radius: 6px;
+      }
+
+      /* Notification card */
+      .notif-card {
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        gap: 12px;
+        transition: background 0.15s;
+        animation: slide-in 0.25s ease;
+        position: relative;
+      }
+      .notif-card:last-child {
+        border-bottom: none;
+      }
+      .notif-card:hover {
+        background: rgba(108, 99, 255, 0.05);
+      }
+      .notif-card.unread::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 3px;
+        background: var(--accent);
+        border-radius: 0 2px 2px 0;
+      }
+
+      @keyframes slide-in {
+        from {
+          opacity: 0;
+          transform: translateY(-8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      /* Badge */
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        font-family: 'JetBrains Mono', monospace;
+      }
+      .badge-accent {
+        background: rgba(108, 99, 255, 0.2);
+        color: var(--accent);
+        border: 1px solid rgba(108, 99, 255, 0.3);
+      }
+      .badge-green {
+        background: rgba(0, 255, 136, 0.12);
+        color: var(--green);
+        border: 1px solid rgba(0, 255, 136, 0.25);
+      }
+      .badge-red {
+        background: rgba(255, 69, 96, 0.12);
+        color: var(--red);
+        border: 1px solid rgba(255, 69, 96, 0.25);
+      }
+      .badge-yellow {
+        background: rgba(255, 209, 102, 0.12);
+        color: var(--yellow);
+        border: 1px solid rgba(255, 209, 102, 0.25);
+      }
+      .badge-cyan {
+        background: rgba(0, 229, 255, 0.1);
+        color: var(--accent2);
+        border: 1px solid rgba(0, 229, 255, 0.2);
+      }
+
+      /* Type icon */
+      .type-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        flex-shrink: 0;
+      }
+
+      /* Log */
+      .log-entry {
+        padding: 6px 12px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        border-bottom: 1px solid rgba(30, 30, 46, 0.5);
+        display: flex;
+        gap: 10px;
+        animation: slide-in 0.2s ease;
+      }
+      .log-entry:last-child {
+        border-bottom: none;
+      }
+
+      /* Scrollbar */
+      ::-webkit-scrollbar {
+        width: 4px;
+        height: 4px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: var(--border);
+        border-radius: 2px;
+      }
+
+      /* Unread count bubble */
+      #unread-bubble {
+        background: var(--red);
+        color: #fff;
+        font-size: 10px;
+        font-weight: 700;
+        border-radius: 999px;
+        padding: 1px 6px;
+        min-width: 18px;
+        text-align: center;
+        display: none;
+      }
+
+      .tab-btn {
+        padding: 6px 14px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.15s;
+        border: none;
+        font-family: 'Syne', sans-serif;
+      }
+      .tab-btn.active {
+        background: var(--accent);
+        color: #fff;
+      }
+      .tab-btn:not(.active) {
+        background: transparent;
+        color: var(--muted);
+      }
+      .tab-btn:not(.active):hover {
+        color: var(--text);
+      }
+    </style>
+  </head>
+  <body class="relative z-10">
+    <!-- Header -->
+    <div
+      class="border-b border-[#1e1e2e] px-6 py-4 flex items-center justify-between sticky top-0 z-50"
+      style="background: rgba(10, 10, 15, 0.9); backdrop-filter: blur(12px)"
+    >
+      <div class="flex items-center gap-3">
+        <div
+          class="w-8 h-8 rounded-lg flex items-center justify-center text-lg"
+          style="background: linear-gradient(135deg, #6c63ff, #00e5ff)"
+        >
+          ⚡
+        </div>
+        <span class="font-black text-lg tracking-tight">NotifSocket</span>
+        <span class="badge badge-accent mono">TESTER</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <div
+          id="status-indicator"
+          class="flex items-center gap-2 text-xs mono"
+          style="color: var(--muted)"
+        >
+          <span class="dot dot-red" id="status-dot"></span>
+          <span id="status-text">Disconnected</span>
+        </div>
+        <div id="unread-bubble">0</div>
+      </div>
+    </div>
+
+    <!-- Main -->
+    <div
+      class="max-w-[1400px] mx-auto px-4 py-6 grid gap-4"
+      style="grid-template-columns: 340px 1fr 340px"
+    >
+      <!-- LEFT: Connect -->
+      <div class="flex flex-col gap-4">
+        <!-- Connection Panel -->
+        <div class="panel">
+          <div class="panel-header">⚙ Connection</div>
+          <div class="p-4 flex flex-col gap-3">
+            <div>
+              <label class="text-xs mono mb-1 block" style="color: var(--muted)"
+                >SERVER URL</label
+              >
+              <input id="server-url" value="http://localhost:9000" />
+            </div>
+            <div>
+              <label class="text-xs mono mb-1 block" style="color: var(--muted)"
+                >JWT TOKEN</label
+              >
+              <textarea
+                id="jwt-token"
+                rows="3"
+                placeholder="Paste your JWT token here..."
+              >eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjbW00ZzFtM3owMDAwcHd1ODRlMHZjOGV3IiwiZW1haWwiOiJhZG1pbkBnbWFpbC5jb20iLCJyb2xlIjoiQURNSU4iLCJpYXQiOjE3NzI3Njk4NzMsImV4cCI6MTc3MjgwNTg3M30.DTTIiI9FfnUigAac4CTc1-WEu0pK4rFK_78F8t-k4gI</textarea>
+            </div>
+            <div>
+              <label class="text-xs mono mb-1 block" style="color: var(--muted)"
+                >NAMESPACE</label
+              >
+              <input id="namespace" value="/notifications" />
+            </div>
+            <div class="flex gap-2">
+              <button
+                class="btn btn-primary flex-1"
+                id="connect-btn"
+                onclick="connect()"
+              >
+                <span>⚡</span> Connect
+              </button>
+              <button
+                class="btn btn-danger"
+                id="disconnect-btn"
+                onclick="disconnect()"
+                disabled
+              >
+                Disconnect
+              </button>
+            </div>
+            <div id="socket-id-row" class="hidden">
+              <label class="text-xs mono mb-1 block" style="color: var(--muted)"
+                >SOCKET ID</label
+              >
+              <div
+                id="socket-id-val"
+                class="mono text-xs p-2 rounded-lg truncate"
+                style="
+                  background: #0d0d14;
+                  color: var(--green);
+                  border: 1px solid var(--border);
+                "
+              ></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Fire Event Panel -->
+        <div class="panel">
+          <div class="panel-header">🚀 Fire Test Event</div>
+          <div class="p-4 flex flex-col gap-3">
+            <div>
+              <label class="text-xs mono mb-1 block" style="color: var(--muted)"
+                >EVENT TYPE</label
+              >
+              <select id="fire-event-type" onchange="updateFirePayload()">
+                <option value="notification:access_request">
+                  access_request (PM)
+                </option>
+                <option value="notification:access_approved">
+                  access_approved (AV)
+                </option>
+                <option value="notification:access_declined">
+                  access_declined (AV)
+                </option>
+                <option value="notification:dashboard_assigned">
+                  dashboard_assigned (PM)
+                </option>
+                <option value="notification:dashboard_shared">
+                  dashboard_shared (AV)
+                </option>
+                <option value="notification:dashboard_updated">
+                  dashboard_updated
+                </option>
+                <option value="notification:due_inspection">
+                  due_inspection (OT)
+                </option>
+                <option value="notification:new_inspection_assigned">
+                  new_inspection_assigned (OT)
+                </option>
+                <option value="notification:new_user_registration">
+                  new_user_registration (Admin)
+                </option>
+                <option value="notification:inspection_report_update">
+                  inspection_report_update (Admin)
+                </option>
+                <option value="notification:unread_count">unread_count</option>
+                <option value="custom">Custom event...</option>
+              </select>
+            </div>
+            <div id="custom-event-row" class="hidden">
+              <label class="text-xs mono mb-1 block" style="color: var(--muted)"
+                >CUSTOM EVENT NAME</label
+              >
+              <input id="custom-event-name" placeholder="my:custom_event" />
+            </div>
+            <div>
+              <label class="text-xs mono mb-1 block" style="color: var(--muted)"
+                >PAYLOAD (JSON)</label
+              >
+              <textarea
+                id="fire-payload"
+                rows="7"
+                class="mono text-xs"
+              ></textarea>
+            </div>
+            <button
+              class="btn btn-primary w-full"
+              id="fire-btn"
+              onclick="fireEvent()"
+              disabled
+            >
+              <span>▶</span> Emit Event
+            </button>
+          </div>
+        </div>
+
+        <!-- Mark all read -->
+        <div class="panel">
+          <div class="panel-header">✉ Actions</div>
+          <div class="p-4 flex flex-col gap-2">
+            <button
+              class="btn btn-ghost w-full"
+              onclick="emitMarkAllRead()"
+              id="mark-read-btn"
+              disabled
+            >
+              ✓ Emit notification:mark_read (all)
+            </button>
+            <button class="btn btn-ghost w-full" onclick="clearNotifications()">
+              🗑 Clear notification list
+            </button>
+            <button class="btn btn-ghost w-full" onclick="clearLog()">
+              🗑 Clear event log
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- CENTER: Notifications -->
+      <div class="panel flex flex-col" style="max-height: calc(100vh - 120px)">
+        <div class="panel-header justify-between">
+          <div class="flex items-center gap-2">
+            🔔 Notification Feed
+            <span id="notif-count-badge" class="badge badge-accent mono"
+              >0</span
+            >
+          </div>
+          <div class="flex gap-1">
+            <button
+              class="tab-btn active"
+              id="tab-all"
+              onclick="filterNotifs('all', this)"
+            >
+              All
+            </button>
+            <button
+              class="tab-btn"
+              id="tab-unread"
+              onclick="filterNotifs('unread', this)"
+            >
+              Unread
+            </button>
+          </div>
+        </div>
+
+        <div id="notif-list" class="flex-1 overflow-y-auto">
+          <!-- Empty state -->
+          <div
+            id="empty-state"
+            class="flex flex-col items-center justify-center h-64 gap-3"
+            style="color: var(--muted)"
+          >
+            <div class="text-5xl opacity-20">🔔</div>
+            <p class="text-sm">Connect and fire events to see notifications</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Event Log -->
+      <div class="panel flex flex-col" style="max-height: calc(100vh - 120px)">
+        <div class="panel-header">
+          📡 Event Log
+          <span id="log-count" class="badge badge-cyan mono ml-auto">0</span>
+        </div>
+        <div id="event-log" class="flex-1 overflow-y-auto">
+          <div class="log-entry" style="color: var(--muted)">
+            <span>--:--:--</span>
+            <span>Waiting for events...</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let socket = null;
+      let notifications = [];
+      let logCount = 0;
+      let currentFilter = 'all';
+
+      // ── Notification type config ─────────────────────────────────────────
+      const TYPE_CONFIG = {
+        'notification:access_request': {
+          icon: '👤',
+          color: '#6c63ff',
+          bg: 'rgba(108,99,255,.15)',
+          badge: 'badge-accent',
+          label: 'Access Request',
+        },
+        'notification:access_approved': {
+          icon: '✅',
+          color: '#00ff88',
+          bg: 'rgba(0,255,136,.1)',
+          badge: 'badge-green',
+          label: 'Access Approved',
+        },
+        'notification:access_declined': {
+          icon: '❌',
+          color: '#ff4560',
+          bg: 'rgba(255,69,96,.12)',
+          badge: 'badge-red',
+          label: 'Access Declined',
+        },
+        'notification:dashboard_assigned': {
+          icon: '📋',
+          color: '#6c63ff',
+          bg: 'rgba(108,99,255,.15)',
+          badge: 'badge-accent',
+          label: 'Dashboard Assigned',
+        },
+        'notification:dashboard_shared': {
+          icon: '🔗',
+          color: '#00e5ff',
+          bg: 'rgba(0,229,255,.1)',
+          badge: 'badge-cyan',
+          label: 'Dashboard Shared',
+        },
+        'notification:dashboard_updated': {
+          icon: '📁',
+          color: '#ffd166',
+          bg: 'rgba(255,209,102,.1)',
+          badge: 'badge-yellow',
+          label: 'Dashboard Updated',
+        },
+        'notification:due_inspection': {
+          icon: '⏰',
+          color: '#ffd166',
+          bg: 'rgba(255,209,102,.1)',
+          badge: 'badge-yellow',
+          label: 'Due Inspection',
+        },
+        'notification:new_inspection_assigned': {
+          icon: '🔍',
+          color: '#00e5ff',
+          bg: 'rgba(0,229,255,.1)',
+          badge: 'badge-cyan',
+          label: 'Inspection Assigned',
+        },
+        'notification:new_user_registration': {
+          icon: '👋',
+          color: '#00ff88',
+          bg: 'rgba(0,255,136,.1)',
+          badge: 'badge-green',
+          label: 'New User',
+        },
+        'notification:inspection_report_update': {
+          icon: '📊',
+          color: '#6c63ff',
+          bg: 'rgba(108,99,255,.15)',
+          badge: 'badge-accent',
+          label: 'Report Update',
+        },
+        'notification:unread_count': {
+          icon: '🔢',
+          color: '#ffd166',
+          bg: 'rgba(255,209,102,.1)',
+          badge: 'badge-yellow',
+          label: 'Unread Count',
+        },
+      };
+
+      // ── Sample payloads ──────────────────────────────────────────────────
+      const SAMPLE_PAYLOADS = {
+        'notification:access_request': {
+          notificationId: 'clxyz001',
+          type: 'access_request',
+          text: 'Requested to View **Sunset Office Complex** Property.',
+          entityId: 'prop_001',
+          metadata: {
+            requesterName: 'Gustavo Xavier',
+            requesterEmail: 'manhhachkt08@gmail.com',
+            requesterAvatar: null,
+            propertyName: 'Sunset Office Complex',
+            hasActions: true,
+            actions: {
+              accept: { label: 'Accept' },
+              decline: { label: 'Decline' },
+            },
+          },
+          sender: {
+            id: 'usr_001',
+            name: 'Gustavo Xavier',
+            email: 'gustavo@gmail.com',
+            avatar: null,
+          },
+          isRead: false,
+        },
+        'notification:access_approved': {
+          notificationId: 'clxyz002',
+          type: 'access_approved',
+          text: '**Gustavo Xavier** accepted your request to view **Sunset Office Complex** Property.',
+          entityId: 'prop_001',
+          metadata: {
+            propertyName: 'Sunset Office Complex',
+            dashboardId: 'dash_001',
+            link: { label: 'View Dashboard', href: '/dashboard/dash_001' },
+          },
+          sender: { name: 'Gustavo Xavier' },
+          isRead: false,
+        },
+        'notification:dashboard_assigned': {
+          notificationId: 'clxyz003',
+          type: 'dashboard_assigned',
+          text: "You've been assigned to a new property dashboard by an admin.",
+          metadata: {
+            propertyName: 'Sunset Office Complex',
+            dashboardId: 'dash_001',
+            link: { label: 'View Dashboard', href: '/dashboard/dash_001' },
+          },
+          isRead: false,
+        },
+        'notification:dashboard_updated': {
+          notificationId: 'clxyz004',
+          type: 'dashboard_updated',
+          text: 'New files have been uploaded to **Sunset Office Complex**.',
+          metadata: {
+            propertyName: 'Sunset Office Complex',
+            dashboardId: 'dash_001',
+            link: { label: 'View Dashboard', href: '/dashboard/dash_001' },
+          },
+          isRead: false,
+        },
+        'notification:due_inspection': {
+          notificationId: 'clxyz005',
+          type: 'due_inspection',
+          text: '**Sunset Office Complex** inspection is due.',
+          metadata: {
+            propertyName: 'Sunset Office Complex',
+            dueDate: '2026-03-10',
+            link: { label: 'Start Inspection', href: '/inspections/form' },
+          },
+          isRead: false,
+        },
+        'notification:new_inspection_assigned': {
+          notificationId: 'clxyz006',
+          type: 'new_inspection_assigned',
+          text: "You've been assigned to a new property inspection.",
+          metadata: {
+            propertyName: 'Sunset Office Complex',
+            link: { label: 'Start Inspection', href: '/inspections/form' },
+          },
+          isRead: false,
+        },
+        'notification:new_user_registration': {
+          notificationId: 'clxyz007',
+          type: 'new_user_registration',
+          text: '**John Doe** registered as a **Property Manager**.',
+          metadata: {
+            userName: 'John Doe',
+            userRole: 'Property Manager',
+            link: { label: 'View', href: '/users/usr_002' },
+          },
+          isRead: false,
+        },
+        'notification:inspection_report_update': {
+          notificationId: 'clxyz008',
+          type: 'inspection_report_update',
+          text: '**Sunset Office Complex** inspection report was added.',
+          metadata: {
+            propertyName: 'Sunset Office Complex',
+            link: { label: 'View Report', href: '/inspections/insp_001' },
+          },
+          isRead: false,
+        },
+        'notification:unread_count': { count: 5 },
+        'notification:dashboard_shared': {
+          notificationId: 'clxyz009',
+          type: 'dashboard_shared',
+          text: "You've been invited to a new property dashboard by **John Doe**.",
+          metadata: {
+            propertyName: 'Sunset Office Complex',
+            link: { label: 'View Dashboard', href: '/dashboard/dash_001' },
+          },
+          isRead: false,
+        },
+        'notification:access_declined': {
+          notificationId: 'clxyz010',
+          type: 'access_declined',
+          text: '**John Doe** declined your request to view **Sunset Office Complex** Property.',
+          isRead: false,
+        },
+        custom: { message: 'Hello from tester!', data: {} },
+      };
+
+      function updateFirePayload() {
+        const type = document.getElementById('fire-event-type').value;
+        document
+          .getElementById('custom-event-row')
+          .classList.toggle('hidden', type !== 'custom');
+        const payload = SAMPLE_PAYLOADS[type] ?? {};
+        document.getElementById('fire-payload').value = JSON.stringify(
+          payload,
+          null,
+          2,
+        );
+      }
+      updateFirePayload();
+
+      // ── Connect ──────────────────────────────────────────────────────────
+      function connect() {
+        const url = document.getElementById('server-url').value.trim();
+        const token = document.getElementById('jwt-token').value.trim();
+        const ns = document.getElementById('namespace').value.trim();
+
+        if (!url) {
+          addLog('error', 'Server URL is required');
+          return;
+        }
+
+        setStatus('connecting');
+        addLog('info', `Connecting to ${url}${ns}...`);
+
+        socket = io(`${url}${ns}`, {
+          auth: { token: token || undefined },
+          transports: ['websocket'],
+          reconnection: true,
+          reconnectionDelay: 1000,
+        });
+
+        socket.on('connect', () => {
+          setStatus('connected');
+          document.getElementById('socket-id-val').textContent = socket.id;
+          document.getElementById('socket-id-row').classList.remove('hidden');
+          document.getElementById('connect-btn').disabled = true;
+          document.getElementById('disconnect-btn').disabled = false;
+          document.getElementById('fire-btn').disabled = false;
+          document.getElementById('mark-read-btn').disabled = false;
+          addLog('success', `Connected! Socket ID: ${socket.id}`);
+        });
+
+        socket.on('disconnect', (reason) => {
+          setStatus('disconnected');
+          document.getElementById('socket-id-row').classList.add('hidden');
+          document.getElementById('connect-btn').disabled = false;
+          document.getElementById('disconnect-btn').disabled = true;
+          document.getElementById('fire-btn').disabled = true;
+          document.getElementById('mark-read-btn').disabled = true;
+          addLog('warn', `Disconnected: ${reason}`);
+        });
+
+        socket.on('connect_error', (err) => {
+          setStatus('disconnected');
+          addLog('error', `Connection error: ${err.message}`);
+        });
+
+        socket.on('error', (data) => {
+          addLog('error', `Server error: ${JSON.stringify(data)}`);
+        });
+
+        // ── Listen to all notification events ───────────────────────────
+        const allEvents = Object.keys(TYPE_CONFIG);
+        allEvents.forEach((event) => {
+          socket.on(event, (data) => {
+            addLog(
+              'recv',
+              `${event} → ${JSON.stringify(data).slice(0, 80)}...`,
+            );
+
+            if (event === 'notification:unread_count') {
+              updateUnreadBubble(data.count);
+              return;
+            }
+
+            addNotification(event, data);
+          });
+        });
+
+        socket.on('notification:marked_read', (data) => {
+          addLog('recv', `marked_read → ${data.notificationId}`);
+        });
+      }
+
+      function disconnect() {
+        if (socket) {
+          socket.disconnect();
+          socket = null;
+        }
+      }
+
+      // ── Fire event ───────────────────────────────────────────────────────
+      function fireEvent() {
+        if (!socket?.connected) {
+          addLog('error', 'Not connected');
+          return;
+        }
+
+        const typeSelect = document.getElementById('fire-event-type').value;
+        const eventName =
+          typeSelect === 'custom'
+            ? document.getElementById('custom-event-name').value.trim()
+            : typeSelect;
+
+        if (!eventName) {
+          addLog('error', 'Event name required');
+          return;
+        }
+
+        let payload = {};
+        try {
+          payload = JSON.parse(
+            document.getElementById('fire-payload').value || '{}',
+          );
+        } catch {
+          addLog('error', 'Invalid JSON payload');
+          return;
+        }
+
+        socket.emit(eventName, payload);
+        addLog('send', `Emitted: ${eventName}`);
+
+        // Simulate receiving for local preview when emitting to self
+        if (eventName !== 'custom' && TYPE_CONFIG[eventName]) {
+          addNotification(eventName, payload);
+        }
+      }
+
+      function emitMarkAllRead() {
+        if (!socket?.connected) return;
+        socket.emit('notification:mark_read', { notificationId: 'all' });
+        markAllReadLocal();
+        addLog('send', 'Emitted: notification:mark_read (all)');
+      }
+
+      // ── Notification rendering ───────────────────────────────────────────
+      function addNotification(eventType, data) {
+        const notif = {
+          id: Date.now(),
+          eventType,
+          data,
+          isRead: data.isRead ?? false,
+          time: new Date(),
+        };
+        notifications.unshift(notif);
+        renderNotifications();
+        updateUnreadBubble(notifications.filter((n) => !n.isRead).length);
+      }
+
+      function renderNotifications() {
+        const list = document.getElementById('notif-list');
+        const empty = document.getElementById('empty-state');
+        const filtered =
+          currentFilter === 'unread'
+            ? notifications.filter((n) => !n.isRead)
+            : notifications;
+
+        document.getElementById('notif-count-badge').textContent =
+          filtered.length;
+
+        if (filtered.length === 0) {
+          list.innerHTML = '';
+          list.appendChild(empty);
+          empty.style.display = 'flex';
+          return;
+        }
+        empty.style.display = 'none';
+
+        list.innerHTML = filtered.map((n) => renderCard(n)).join('');
+      }
+
+      function renderCard(notif) {
+        const cfg = TYPE_CONFIG[notif.eventType] || {
+          icon: '🔔',
+          color: '#6c63ff',
+          bg: 'rgba(108,99,255,.15)',
+          badge: 'badge-accent',
+          label: notif.eventType,
+        };
+        const data = notif.data;
+        const time = timeAgo(notif.time);
+
+        // Parse bold text **...**
+        const text = (
+          data.text ||
+          data.message ||
+          JSON.stringify(data)
+        ).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+        const hasActions = data.metadata?.hasActions && data.metadata?.actions;
+        const link = data.metadata?.link;
+        const sender = data.sender;
+
+        const avatarHtml = sender?.avatar
+          ? `<img src="${sender.avatar}" class="w-9 h-9 rounded-full object-cover" />`
+          : `<div class="type-icon" style="background:${cfg.bg}; color:${cfg.color}">${cfg.icon}</div>`;
+
+        return `
+        <div class="notif-card ${!notif.isRead ? 'unread' : ''}" id="notif-${notif.id}"
+             onclick="markRead(${notif.id})">
+          <div>${avatarHtml}</div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-start justify-between gap-2 mb-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                ${sender?.name ? `<span class="text-sm font-bold">${sender.name}</span>` : ''}
+                <span class="badge ${cfg.badge}">${cfg.label}</span>
+              </div>
+              <span class="text-xs flex-shrink-0 mono" style="color:var(--muted)">${time}</span>
+            </div>
+            ${sender?.email ? `<div class="text-xs mb-1" style="color:var(--muted)">${sender.email}</div>` : ''}
+            <p class="text-sm leading-relaxed" style="color: #c0c0d8">${text}</p>
+            ${
+              hasActions
+                ? `
+              <div class="flex gap-2 mt-3">
+                <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); handleAction(${notif.id},'accept')">
+                  ${data.metadata.actions.accept.label}
+                </button>
+                <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); handleAction(${notif.id},'decline')">
+                  ${data.metadata.actions.decline.label}
+                </button>
+              </div>`
+                : ''
+            }
+            ${
+              link && !hasActions
+                ? `
+              <a href="${link.href}" class="text-xs mt-2 inline-block" style="color:var(--accent2)"
+                 onclick="event.stopPropagation()">
+                ${link.label} →
+              </a>`
+                : ''
+            }
+          </div>
+          ${!notif.isRead ? '<div class="dot dot-green mt-1 flex-shrink-0"></div>' : ''}
+        </div>`;
+      }
+
+      function markRead(id) {
+        const n = notifications.find((n) => n.id === id);
+        if (n) n.isRead = true;
+        renderNotifications();
+        updateUnreadBubble(notifications.filter((n) => !n.isRead).length);
+      }
+
+      function markAllReadLocal() {
+        notifications.forEach((n) => (n.isRead = true));
+        renderNotifications();
+        updateUnreadBubble(0);
+      }
+
+      function handleAction(id, action) {
+        addLog('info', `Action triggered: ${action} for notif ${id}`);
+        markRead(id);
+      }
+
+      function filterNotifs(filter, btn) {
+        currentFilter = filter;
+        document
+          .querySelectorAll('.tab-btn')
+          .forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderNotifications();
+      }
+
+      function clearNotifications() {
+        notifications = [];
+        renderNotifications();
+        updateUnreadBubble(0);
+      }
+
+      // ── Log ──────────────────────────────────────────────────────────────
+      const LOG_COLORS = {
+        info: '#5a5a7a',
+        success: '#00ff88',
+        warn: '#ffd166',
+        error: '#ff4560',
+        send: '#6c63ff',
+        recv: '#00e5ff',
+      };
+      const LOG_ICONS = {
+        info: '·',
+        success: '✓',
+        warn: '⚠',
+        error: '✗',
+        send: '↑',
+        recv: '↓',
+      };
+
+      function addLog(type, msg) {
+        const log = document.getElementById('event-log');
+        const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+        logCount++;
+        document.getElementById('log-count').textContent = logCount;
+
+        // Remove placeholder
+        const placeholder = log.querySelector('.log-entry');
+        if (placeholder?.textContent.includes('Waiting')) placeholder.remove();
+
+        const el = document.createElement('div');
+        el.className = 'log-entry';
+        el.innerHTML = `
+        <span style="color:var(--muted); flex-shrink:0">${time}</span>
+        <span style="color:${LOG_COLORS[type]}; flex-shrink:0">${LOG_ICONS[type]}</span>
+        <span style="color:${LOG_COLORS[type]}; word-break:break-all">${msg}</span>`;
+        log.insertBefore(el, log.firstChild);
+      }
+
+      function clearLog() {
+        document.getElementById('event-log').innerHTML =
+          `<div class="log-entry" style="color:var(--muted)"><span>--:--:--</span><span>Log cleared</span></div>`;
+        logCount = 0;
+        document.getElementById('log-count').textContent = 0;
+      }
+
+      // ── Status ───────────────────────────────────────────────────────────
+      function setStatus(state) {
+        const dot = document.getElementById('status-dot');
+        const text = document.getElementById('status-text');
+        dot.className = 'dot';
+        if (state === 'connected') {
+          dot.classList.add('dot-green');
+          text.textContent = 'Connected';
+          text.style.color = 'var(--green)';
+        } else if (state === 'connecting') {
+          dot.classList.add('dot-yellow');
+          text.textContent = 'Connecting...';
+          text.style.color = 'var(--yellow)';
+        } else {
+          dot.classList.add('dot-red');
+          text.textContent = 'Disconnected';
+          text.style.color = 'var(--muted)';
+        }
+      }
+
+      function updateUnreadBubble(count) {
+        const bubble = document.getElementById('unread-bubble');
+        bubble.textContent = count;
+        bubble.style.display = count > 0 ? 'inline-block' : 'none';
+      }
+
+      function timeAgo(date) {
+        const s = Math.floor((Date.now() - date) / 1000);
+        if (s < 60) return 'just now';
+        if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+        return `${Math.floor(s / 3600)}h ago`;
+      }
+    </script>
+  </body>
+</html>

@@ -20,9 +20,10 @@ import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/common/guard/role/roles.guard';
 import { Roles } from 'src/common/guard/role/roles.decorator';
 import { Role } from 'src/common/guard/role/role.enum';
+import { SWAGGER_AUTH } from 'src/common/swagger/swagger-auth';
 
 @ApiTags('Admin – Settings')
-@ApiBearerAuth()
+@ApiBearerAuth(SWAGGER_AUTH.admin)
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.ADMIN)
 @Controller('admin/settings')
@@ -51,14 +52,18 @@ export class SettingsController {
   // ─── USER LEVEL NOTIFICATION SETTINGS (system-wide role defaults) ─────────
 
   @Get('notifications/user-level')
-  @ApiOperation({ summary: 'Get system-wide default notification settings per role' })
+  @ApiOperation({
+    summary: 'Get system-wide default notification settings per role',
+  })
   @ApiOkResponse({ description: 'User level notification settings returned' })
   getUserLevelNotificationSettings() {
     return this.settingsService.getUserLevelNotificationSettings();
   }
 
   @Patch('notifications/user-level')
-  @ApiOperation({ summary: 'Update system-wide default notification settings per role' })
+  @ApiOperation({
+    summary: 'Update system-wide default notification settings per role',
+  })
   @ApiOkResponse({ description: 'User level notification settings updated' })
   updateUserLevelNotificationSettings(
     @Request() req,

@@ -22,7 +22,10 @@ async function bootstrap() {
   });
 
   app.setGlobalPrefix('api');
-  app.enableCors();
+  app.enableCors({
+    credentials: true,
+    origin: appConfig().cors.origins,
+  });
   app.use(helmet());
   // Enable it, if special charactrers not encoding perfectly
   // app.use((req, res, next) => {

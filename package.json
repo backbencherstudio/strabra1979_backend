@@ -35,8 +35,9 @@
     "@nestjs/mapped-types": "^2.1.0",
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.1.9",
-    "@nestjs/platform-socket.io": "^11.1.9",
+    "@nestjs/platform-socket.io": "^11.1.16",
     "@nestjs/swagger": "^11.2.3",
+    "@nestjs/websockets": "^11.1.16",
     "@prisma/adapter-pg": "^7.0.1",
     "@prisma/client": "^7.0.1",
     "aws-sdk": "^2.1692.0",
@@ -61,7 +62,7 @@
     "puppeteer": "24.6.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "7.8.2",
-    "socket.io": "4.8.1",
+    "socket.io": "^4.8.3",
     "zod": "3.24.2"
   },
   "devDependencies": {

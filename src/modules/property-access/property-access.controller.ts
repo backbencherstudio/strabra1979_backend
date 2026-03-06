@@ -6,8 +6,9 @@ import {
   Delete,
   Body,
   Param,
-  Request,
   UseGuards,
+  Req,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -15,6 +16,8 @@ import {
   ApiResponse,
   ApiBearerAuth,
   ApiParam,
+  ApiQuery,
+  ApiOkResponse,
 } from '@nestjs/swagger';
 import { PropertyAccessService } from './property-access.service';
 import {
@@ -23,9 +26,15 @@ import {
   ShareDashboardDto,
   RevokeAccessDto,
 } from './dto/property-access.dto';
+import { SWAGGER_AUTH } from 'src/common/swagger/swagger-auth';
+import { Request } from 'express';
+import { RolesGuard } from 'src/common/guard/role/roles.guard';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AccessRequestStatus } from 'prisma/generated/enums';
 
 @ApiTags('Property Access')
-@ApiBearerAuth()
+@ApiBearerAuth(SWAGGER_AUTH.admin)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('properties/:propertyId')
 export class PropertyAccessController {
   constructor(private readonly service: PropertyAccessService) {}
@@ -47,16 +56,16 @@ export class PropertyAccessController {
     schema: {
       example: [
         { hasAccess: true },
-        { hasAccess: false, reason: 'NO_ACCESS' },   // → show "Request Access" modal
-        { hasAccess: false, reason: 'REVOKED' },      // → show "Access Revoked" message
-        { hasAccess: false, reason: 'EXPIRED' },      // → show "Access Expired" message
+        { hasAccess: false, reason: 'NO_ACCESS' }, // → show "Request Access" modal
+        { hasAccess: false, reason: 'REVOKED' }, // → show "Access Revoked" message
+        { hasAccess: false, reason: 'EXPIRED' }, // → show "Access Expired" message
       ],
     },
   })
-  checkAccess(@Param('propertyId') propertyId: string, @Request() req: any) {
+  checkAccess(@Param('propertyId') propertyId: string, @Req() req: Request) {
     return this.service.checkDashboardAccess(
       propertyId,
-      req.user.id,
+      req.user.userId,
       req.user.role,
     );
   }
@@ -87,13 +96,80 @@ export class PropertyAccessController {
       },
     },
   })
-  @ApiResponse({ status: 409, description: 'Already has access or pending request.' })
+  @ApiResponse({
+    status: 409,
+    description: 'Already has access or pending request.',
+  })
   requestAccess(
     @Param('propertyId') propertyId: string,
     @Body() dto: RequestPropertyAccessDto,
-    @Request() req: any,
+    @Req() req: Request,
   ) {
-    return this.service.requestAccess(propertyId, req.user.id, dto);
+    return this.service.requestAccess(propertyId, req.user.userId, dto);
+  }
+
+  @Get('access/requests')
+  @ApiOperation({
+    summary: 'Get all property access requests (Admin)',
+    description:
+      'Returns all PropertyAccessRequests across all properties. ' +
+      'Optionally filter by propertyId, status, or requesterId.',
+  })
+  @ApiQuery({
+    name: 'propertyId',
+    required: false,
+    description: 'Filter by specific property',
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: AccessRequestStatus,
+    description: 'Filter by request status',
+  })
+  @ApiQuery({
+    name: 'requesterId',
+    required: false,
+    description: 'Filter by specific requesting user',
+  })
+  @ApiOkResponse({
+    description: 'All access requests retrieved successfully.',
+    schema: {
+      example: {
+        success: true,
+        message: 'Access requests retrieved successfully',
+        data: [
+          {
+            id: 'req_clxyz001',
+            status: 'PENDING',
+            createdAt: '2026-01-16T02:06:00.000Z',
+            property: {
+              id: 'clxyz001',
+              name: 'Sunset Office Park',
+              address: '123 Main St',
+            },
+            requester: {
+              id: 'clxyz002',
+              name: 'John Doe',
+              email: 'john@example.com',
+              role: 'AUTHORIZED_VIEWER',
+            },
+            reviewer: null,
+            reviewedAt: null,
+          },
+        ],
+      },
+    },
+  })
+  getAllAccessRequests(
+    @Query('propertyId') propertyId?: string,
+    @Query('status') status?: AccessRequestStatus,
+    @Query('requesterId') requesterId?: string,
+  ) {
+    return this.service.getAllAccessRequests({
+      propertyId,
+      status,
+      requesterId,
+    });
   }
 
   // ─── STEP 2: PM clicks Accept / Decline in notification (Image 2) ─────────
@@ -109,7 +185,10 @@ export class PropertyAccessController {
       'Both actions send a notification back to the requester.',
   })
   @ApiParam({ name: 'propertyId', description: 'CUID of the property' })
-  @ApiParam({ name: 'requestId', description: 'CUID of the PropertyAccessRequest' })
+  @ApiParam({
+    name: 'requestId',
+    description: 'CUID of the PropertyAccessRequest',
+  })
   @ApiResponse({
     status: 200,
     description: 'Request reviewed.',
@@ -121,16 +200,13 @@ export class PropertyAccessController {
       },
     },
   })
-  @ApiResponse({ status: 400, description: 'Request already reviewed or missing decline reason.' })
-  @ApiResponse({ status: 403, description: 'Not the Property Manager for this dashboard.' })
-  @ApiResponse({ status: 404, description: 'Request not found.' })
   reviewRequest(
     @Param('propertyId') propertyId: string,
     @Param('requestId') requestId: string,
     @Body() dto: ReviewAccessRequestDto,
-    @Request() req: any,
+    @Req() req: Request,
   ) {
-    return this.service.reviewAccessRequest(requestId, req.user.id, dto);
+    return this.service.reviewAccessRequest(requestId, req.user.userId, dto);
   }
 
   // ─── SHARE DASHBOARD directly (Image 1 — Share modal "Invite" button) ─────
@@ -165,9 +241,9 @@ export class PropertyAccessController {
   shareDashboard(
     @Param('propertyId') propertyId: string,
     @Body() dto: ShareDashboardDto,
-    @Request() req: any,
+    @Req() req: Request,
   ) {
-    return this.service.shareDashboard(propertyId, req.user.id, dto);
+    return this.service.shareDashboard(propertyId, req.user.userId, dto);
   }
 
   // ─── GET ACCESS LIST (Image 1 — "Who has view access" list) ──────────────
@@ -178,7 +254,7 @@ export class PropertyAccessController {
     description:
       'Returns the list shown in the Share modal (Image 1) under "Who has view access". ' +
       'Excludes revoked and expired access records. ' +
-      'Includes each user\'s name, email, avatar, role, and expiry date.',
+      "Includes each user's name, email, avatar, role, and expiry date.",
   })
   @ApiParam({ name: 'propertyId', description: 'CUID of the property' })
   @ApiResponse({
@@ -207,7 +283,7 @@ export class PropertyAccessController {
 
   @Delete('access/users/:targetUserId')
   @ApiOperation({
-    summary: 'Revoke a user\'s access to this dashboard',
+    summary: "Revoke a user's access to this dashboard",
     description:
       'Called when the PM clicks "Remove" next to a user in the Share modal (Image 1). ' +
       'Sets revokedAt on the PropertyAccess record. ' +
@@ -221,9 +297,14 @@ export class PropertyAccessController {
     @Param('propertyId') propertyId: string,
     @Param('targetUserId') targetUserId: string,
     @Body() dto: RevokeAccessDto,
-    @Request() req: any,
+    @Req() req: Request,
   ) {
-    return this.service.revokeAccess(propertyId, targetUserId, req.user.id, dto);
+    return this.service.revokeAccess(
+      propertyId,
+      targetUserId,
+      req.user.userId,
+      dto,
+    );
   }
 
   // ─── GET PENDING REQUESTS (for PM notification badge / list) ─────────────

@@ -20,11 +20,9 @@ import { PropertyDashboardService } from './property-dashboard.service';
 import {
   CreatePropertyDto,
   ScheduleInspectionDto,
-  AssignPropertyManagerDto,
-  GrantPropertyAccessDto,
-  RevokePropertyAccessDto,
   SetAccessExpirationDto,
   UpdatePropertyDto,
+  AssignPropertyUserDto,
 } from './dto/property-dashboard.dto';
 import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/common/guard/role/roles.guard';
@@ -140,9 +138,9 @@ export class PropertyDashboardController {
     return this.service.scheduleInspection(propertyId, dto, req.user?.userId);
   }
 
-  // ─── ASSIGN PROPERTY MANAGER ──────────────────────────────────────────────────
+  // ─── ASSIGN PROPERTY USER ──────────────────────────────────────────────────
 
-  @Post(':propertyId/assign-manager')
+  @Post(':propertyId/assign-user')
   @Roles(Role.ADMIN)
   @ApiOperation({
     summary: 'Assign or change the Property Manager for a property',
@@ -158,19 +156,16 @@ export class PropertyDashboardController {
   })
   assignManager(
     @Param('propertyId') propertyId: string,
-    @Body() dto: AssignPropertyManagerDto,
+    @Body() dto: AssignPropertyUserDto,
     @Req() req: Request,
   ) {
-    return this.service.assignPropertyManager(
-      propertyId,
-      dto,
-      req.user?.userId,
-    );
+    return this.service.assignPropertyUser(propertyId, dto, req.user?.userId);
   }
 
   // ─── PROPERTY ACCESS MANAGEMENT ──────────────────────────────────────────────
 
   @Get(':propertyId/access')
+  @Roles(Role.ADMIN)
   @ApiOperation({
     summary: 'Get the access list for a property dashboard',
     description:
@@ -178,22 +173,6 @@ export class PropertyDashboardController {
       'Corresponds to the "Property Dashboard Access" modal on the Property List page.',
   })
   @ApiParam({ name: 'propertyId', description: 'CUID of the property' })
-  @ApiResponse({
-    status: 200,
-    description: 'Property access list.',
-    schema: {
-      example: {
-        id: 'clxyz001',
-        propertyManager: {
-          id: 'clxyz002',
-          name: 'Leslie Alexander',
-          email: 'sara.cruz@example.com',
-          role: 'PROPERTY_MANAGER',
-          access_expires_at: null,
-        },
-      },
-    },
-  })
   getAccess(@Param('propertyId') propertyId: string) {
     return this.service.getPropertyAccess(propertyId);
   }

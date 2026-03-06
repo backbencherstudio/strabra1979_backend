@@ -100,32 +100,55 @@ model InspectionCriteria {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  // The input fields shown at top of inspection form
-  // e.g. Property Name, Date, Inspector, Roof System Type
+  // Input fields shown at top of inspection form
   headerFields Json
-  // Example:
   // [
-  //   { "key": "inspectionTitle", "label": "Inspection Title", "type": "text", "required": true },
-  //   { "key": "propertyType",    "label": "Property Type",    "type": "dropdown",
-  //     "options": ["Commercial","Residential"], "required": false },
-  //   { "key": "roofSystemType",  "label": "Roof System Type", "type": "dropdown",
-  //     "options": ["TPO","Metal","Shingle"], "required": false },
-  //   { "key": "drainageType",    "label": "Drainage Type",    "type": "dropdown",
-  //     "options": ["Internal","External"], "required": false }
+  //   { "key": "inspectionTitle", "label": "Inspection Title", "type": "text",     "required": true,  "isSystem": true, "order": 1, "options": null },
+  //   { "key": "propertyType",    "label": "Property Type",    "type": "dropdown", "required": false, "isSystem": true, "order": 2, "options": ["Commercial","Residential"] },
+  //   { "key": "roofSystemType",  "label": "Roof System Type", "type": "dropdown", "required": false, "isSystem": true, "order": 3, "options": ["TPO","Metal","Shingle"] },
+  //   { "key": "drainageType",    "label": "Drainage Type",    "type": "dropdown", "required": false, "isSystem": true, "order": 4, "options": ["Internal","External"] }
   // ]
 
-  // The scored categories shown in checklist
-  // e.g. Surface Condition (25pts), Seams & Flashings (20pts)
+  // Scored checklist categories — must sum to ≤100 pts
   scoringCategories Json
-  // Example:
   // [
-  //   { "key": "surfaceCondition",  "label": "Surface Condition",       "maxPoints": 25 },
-  //   { "key": "seamsFlashings",    "label": "Seams & Flashings",       "maxPoints": 20 },
-  //   { "key": "drainagePonding",   "label": "Drainage & Ponding",      "maxPoints": 15 },
-  //   { "key": "penetrations",      "label": "Penetrations & Accessories", "maxPoints": 10 },
-  //   { "key": "repairsHistory",    "label": "Repairs & Patch History", "maxPoints": 10 },
-  //   { "key": "ageExpectedLife",   "label": "Age vs. Expected Life",   "maxPoints": 10 }
+  //   { "key": "surfaceCondition", "label": "Surface Condition",          "maxPoints": 25, "isSystem": true, "order": 1 },
+  //   { "key": "seamsFlashings",   "label": "Seams & Flashings",          "maxPoints": 20, "isSystem": true, "order": 2 },
+  //   { "key": "drainagePonding",  "label": "Drainage & Ponding",         "maxPoints": 15, "isSystem": true, "order": 3 },
+  //   { "key": "penetrations",     "label": "Penetrations & Accessories", "maxPoints": 10, "isSystem": true, "order": 4 },
+  //   { "key": "repairsHistory",   "label": "Repairs & Patch History",    "maxPoints": 10, "isSystem": true, "order": 5 },
+  //   { "key": "ageExpectedLife",  "label": "Age vs. Expected Life",      "maxPoints": 10, "isSystem": true, "order": 6 }
   // ]
+
+  // Media & document upload slots in the Media Files tab
+  // type: "file" = upload widget | "embed" = URL/iframe textarea | "document" = doc upload
+  mediaFields Json
+  // [
+  //   { "key": "mediaFiles", "label": "Media Files", "placeholder": "Upload Media file",             "type": "file",     "isSystem": true, "order": 1, "accept": ["image/*","video/*"] },
+  //   { "key": "aerialMap",  "label": "Aerial Map",  "placeholder": "Upload your file.",             "type": "file",     "isSystem": true, "order": 2, "accept": ["image/*"] },
+  //   { "key": "tour3d",     "label": "3D Tours",    "placeholder": "Paste Source URL / iframe Code","type": "embed",    "isSystem": true, "order": 3, "accept": null },
+  //   { "key": "documents",  "label": "Documents",   "placeholder": "Add Documents",                 "type": "document", "isSystem": true, "order": 4, "accept": null }
+  // ]
+
+  // NTE input field config — label and placeholder only
+  // { "label": "NTE (Not-To-Exceed)", "placeholder": "Enter NTE" }
+  nteConfig Json
+
+  // Additional notes textarea config — label and placeholder only
+  // { "label": "Additional Notes/Comments", "placeholder": "Type Any Additional Notes/Comments" }
+  additionalNotesConfig Json
+
+  // Status options the inspector picks from when adding repair items
+  // { "statuses": ["Urgent", "Maintenance", "Replacement Planning"] }
+  repairPlanningConfig Json
+
+  // Score range thresholds + remaining life year ranges per health tier
+  // {
+  //   "good": { "minScore": 70, "maxScore": 100, "remainingLifeMinYears": 5, "remainingLifeMaxYears": 7 },
+  //   "fair": { "minScore": 30, "maxScore": 69,  "remainingLifeMinYears": 3, "remainingLifeMaxYears": 5 },
+  //   "poor": { "minScore": 0,  "maxScore": 29,  "remainingLifeMinYears": 0, "remainingLifeMaxYears": 2 }
+  // }
+  healthThresholdConfig Json
 
   templates DashboardTemplate[]
 
@@ -230,35 +253,41 @@ model Inspection {
   inspectorId String
   status      InspectionStatus @default(DRAFT)
 
-  // Filled header fields (matches criteria.headerFields keys)
-  // { "inspectionTitle": "2024 Annual Roof Inspection", "roofSystemType": "Metal", ... }
-  headerData Json
+  // ── Inspector fills these at inspection time ──────────────────────────────
 
-  // Filled scores per category (matches criteria.scoringCategories keys)
+  // Values keyed by criteria.headerFields[].key — inspector fills each field
+  // { "inspectionTitle": "2024 Annual Roof", "propertyType": "Commercial", "roofSystemType": "TPO", "drainageType": "Internal" }
+  // Any custom header fields added by admin also appear here by their key
+  headerData Json @default("{}")
+
+  // Scores keyed by criteria.scoringCategories[].key
   // { "surfaceCondition": { "score": 22, "notes": "Minor cracks observed" },
-  //   "seamsFlashings":   { "score": 18, "notes": "Good overall" }, ... }
-  scores Json
+  //   "seamsFlashings":   { "score": 18, "notes": "Good overall" },
+  //   "drainagePonding":  { "score": 14, "notes": "" }, ... }
+  // Any custom scoring categories added by admin also appear here
+  scores Json @default("{}")
 
-  // Computed from scores
+  // Computed from scores against criteria.healthThresholdConfig
   overallScore  Float?
-  healthLabel   String? // "Good" | "Fair" | "Poor"
-  remainingLife String? // "5-7 Years"
+  healthLabel   String? // "Good" | "Fair" | "Poor"  — derived from healthThresholdConfig
+  remainingLife String? // "5-7 Years"               — derived from healthThresholdConfig tiers
 
-  // Repair items shown in Priority Repair Planning section
-  repairItems Json
+  // Repair items — status must match one of criteria.repairPlanningConfig.statuses
   // [
-  //   { "title": "Emergency Leak Repair", "priority": "urgent",
-  //     "description": "Moisture stains / vulnerable joints noted..." },
-  //   { "title": "Metal Panel Corrosion", "priority": "maintenance",  "description": "..." },
-  //   { "title": "Metal Panel Corrosion", "priority": "replacement_planning", "description": "..." }
+  //   { "id": "repair_1748291001", "title": "Emergency Leak Repair",        "status": "Urgent",               "description": "Moisture stains noted..." },
+  //   { "id": "repair_1748291002", "title": "Metal Panel Corrosion",         "status": "Maintenance",          "description": "Corrosion on north face..." },
+  //   { "id": "repair_1748291003", "title": "Full Membrane Replacement",     "status": "Replacement Planning", "description": "End of service life..." }
   // ]
+  repairItems Json @default("[]")
 
-  aerialMapUrl String?
-  tourUrl      String?
-
-  // NTE and additional comments (Additional Information section)
+  // NTE and additional notes — labels/placeholders come from criteria.nteConfig
+  // and criteria.additionalNotesConfig; only the values are stored here
   nteValue           Float?
   additionalComments String?
+
+  // Media uploaded for this inspection — stored as MediaFile rows, not inline JSON
+  // Keyed by criteria.mediaFields[].key so the UI knows which slot each file belongs to
+  // Access via: mediaFiles relation, filtered by mediaFieldKey
 
   inspectedAt DateTime @default(now())
   createdAt   DateTime @default(now())
@@ -269,6 +298,26 @@ model Inspection {
   mediaFiles MediaFile[]
 
   @@map("inspections")
+}
+
+model MediaFile {
+  id           String    @id @default(cuid())
+  inspectionId String
+  fileName     String
+  fileType     MediaType
+  url          String
+  size         Int? // bytes
+
+  // Which media slot this file belongs to — matches criteria.mediaFields[].key
+  // e.g. "mediaFiles" | "aerialMap" | "documents" | "custom_media_1748291234"
+  mediaFieldKey String?
+
+  category   String? // "photo" | "aerial" | "tour" | "video" | "document"
+  uploadedAt DateTime @default(now())
+
+  inspection Inspection @relation(fields: [inspectionId], references: [id])
+
+  @@map("media_files")
 }
 
 model PropertyAccess {
@@ -324,28 +373,6 @@ model PropertyAccessRequest {
 
   @@unique([propertyId, requesterId]) // one pending request per property+user
   @@map("property_access_requests")
-}
-
-// ─────────────────────────────────────────
-// MEDIA FILES
-// ─────────────────────────────────────────
-
-model MediaFile {
-  id           String    @id @default(cuid())
-  inspectionId String
-  dashboardId  String?
-  fileName     String
-  fileType     MediaType
-  url          String
-  category     String? // "photo" | "aerial" | "tour" | "video"
-  size         Int? // bytes
-  version      Int       @default(1)
-  isArchived   Boolean   @default(false)
-  uploadedAt   DateTime  @default(now())
-
-  inspection Inspection @relation(fields: [inspectionId], references: [id])
-
-  @@map("media_files")
 }
 
 // ─────────────────────────────────────────

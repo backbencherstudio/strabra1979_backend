@@ -6,11 +6,9 @@ import {
 import {
   CreatePropertyDto,
   ScheduleInspectionDto,
-  AssignPropertyManagerDto,
-  GrantPropertyAccessDto,
-  RevokePropertyAccessDto,
   SetAccessExpirationDto,
   UpdatePropertyDto,
+  AssignPropertyUserDto,
 } from './dto/property-dashboard.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Role } from 'src/common/guard/role/role.enum';
@@ -113,7 +111,13 @@ export class PropertyDashboardService {
         where: { status: { not: 'ARCHIVED' } },
         include: {
           propertyManager: {
-            select: { id: true, name: true, email: true, avatar: true },
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              avatar: true,
+              inspections: true,
+            },
           },
           dashboard: { select: { id: true, updatedAt: true } },
         },
@@ -267,43 +271,94 @@ export class PropertyDashboardService {
 
   // ─── 6. ASSIGN / CHANGE PROPERTY MANAGER ────────────────────────────────────
 
-  async assignPropertyManager(
+  async assignPropertyUser(
     propertyId: string,
-    dto: AssignPropertyManagerDto,
+    dto: AssignPropertyUserDto,
     adminId: string,
   ) {
     await this._assertPropertyExists(propertyId);
 
-    const pm = await this.prisma.user.findFirst({
-      where: {
-        id: dto.propertyManagerId,
-        role: Role.PROPERTY_MANAGER,
-        isDeleted: false,
-      },
+    const user = await this.prisma.user.findFirst({
+      where: { id: dto.userId, isDeleted: false },
     });
-    if (!pm) throw new NotFoundException('Property Manager not found.');
+    if (!user) throw new NotFoundException('User not found.');
 
-    const updated = await this.prisma.property.update({
-      where: { id: propertyId },
-      data: { propertyManagerId: dto.propertyManagerId },
-    });
+    // Guard: expiry must be in the future if provided
+    if (dto.expiresAt && new Date(dto.expiresAt) <= new Date()) {
+      throw new BadRequestException('expiresAt must be a future date.');
+    }
 
-    await this.prisma.auditLog.create({
-      data: {
-        user_id: adminId,
-        property_id: propertyId,
-        action: 'property_manager_assigned',
-        entity_type: 'property',
-        entity_id: propertyId,
-        metadata: { newManagerId: dto.propertyManagerId, managerName: pm.name },
-      },
-    });
+    if (user.role === Role.PROPERTY_MANAGER) {
+      // expiresAt not applicable for Property Manager — they are assigned on the property directly
+      const updated = await this.prisma.property.update({
+        where: { id: propertyId },
+        data: { propertyManagerId: dto.userId },
+      });
 
-    return {
-      success: true,
-      message: 'Property Manager assigned successfully',
-      data: updated,
-    };
+      await this.prisma.auditLog.create({
+        data: {
+          user_id: adminId,
+          property_id: propertyId,
+          action: 'property_manager_assigned',
+          entity_type: 'property',
+          entity_id: propertyId,
+          metadata: {
+            assignedUserId: dto.userId,
+            assignedUserName: user.name,
+            assignedUserRole: user.role,
+          },
+        },
+      });
+
+      return {
+        success: true,
+        message: 'Property Manager assigned successfully',
+        data: updated,
+      };
+    } else {
+      const access = await this.prisma.propertyAccess.upsert({
+        where: { propertyId_userId: { propertyId, userId: dto.userId } },
+        create: {
+          propertyId,
+          userId: dto.userId,
+          grantedBy: adminId,
+          grantedAt: new Date(),
+          expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null, // ← new
+          revokedAt: null,
+        },
+        update: {
+          grantedBy: adminId,
+          grantedAt: new Date(),
+          expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null, // ← new
+          revokedAt: null,
+          revokedBy: null,
+        },
+      });
+
+      await this.prisma.auditLog.create({
+        data: {
+          user_id: adminId,
+          property_id: propertyId,
+          action: 'property_access_granted',
+          entity_type: 'property',
+          entity_id: propertyId,
+          metadata: {
+            assignedUserId: dto.userId,
+            assignedUserName: user.name,
+            assignedUserRole: user.role,
+            expiresAt: dto.expiresAt ?? null,
+          },
+        },
+      });
+
+      return {
+        success: true,
+        message: dto.expiresAt
+          ? `Access granted — expires ${new Date(dto.expiresAt).toDateString()}`
+          : 'User access granted successfully',
+        data: access,
+      };
+    }
   }
 
   // ─── 7. GET PROPERTY ACCESS LIST ────────────────────────────────────────────
@@ -311,28 +366,61 @@ export class PropertyDashboardService {
   async getPropertyAccess(propertyId: string) {
     await this._assertPropertyExists(propertyId);
 
-    // Fetch the property manager + all authorized viewers
-    // (Future: replace with a dedicated PropertyAccess join table for scalability)
-    const property = await this.prisma.property.findUnique({
-      where: { id: propertyId },
-      include: {
-        propertyManager: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            avatar: true,
-            role: true,
-            access_expires_at: true,
+    const [property, accesses] = await Promise.all([
+      // Property manager (assigned directly on property)
+      this.prisma.property.findUnique({
+        where: { id: propertyId },
+        select: {
+          id: true,
+          name: true,
+          propertyManager: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              avatar: true,
+              role: true,
+              access_expires_at: true,
+            },
           },
         },
-      },
-    });
+      }),
+
+      // All users granted access via PropertyAccess join table
+      this.prisma.propertyAccess.findMany({
+        where: {
+          propertyId,
+          revokedAt: null, // only active (non-revoked) access
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              avatar: true,
+              role: true,
+            },
+          },
+        },
+        orderBy: { grantedAt: 'desc' },
+      }),
+    ]);
 
     return {
       success: true,
       message: 'Property access retrieved successfully',
-      data: property,
+      data: {
+        id: property.id,
+        name: property.name,
+        propertyManager: property.propertyManager ?? null,
+        accesses: accesses.map((a) => ({
+          id: a.id,
+          grantedAt: a.grantedAt,
+          expiresAt: a.expiresAt ?? null,
+          user: a.user,
+        })),
+      },
     };
   }
 
