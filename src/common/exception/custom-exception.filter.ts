@@ -19,7 +19,7 @@ export class CustomExceptionFilter implements ExceptionFilter {
     let message = 'An error occurred';
     let errors: { field: string; message: string }[] = [];
 
-    // 🔹 Validation errors (class-validator)
+    // Validation errors (class-validator)
     if (
       exception instanceof BadRequestException &&
       Array.isArray(exceptionResponse?.message)
@@ -34,7 +34,7 @@ export class CustomExceptionFilter implements ExceptionFilter {
         };
       });
     } else {
-      // 🔹 Other HttpExceptions
+      // Other HttpExceptions
       message =
         typeof exceptionResponse === 'string'
           ? exceptionResponse

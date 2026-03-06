@@ -24,6 +24,7 @@ import {
   VerifyEmailDto,
 } from './dto/create-user.dto';
 import { Role, UserStatus } from 'prisma/generated/enums';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class AuthService {
@@ -31,6 +32,7 @@ export class AuthService {
     private jwtService: JwtService,
     private prisma: PrismaService,
     private mailService: MailService,
+    private notificationService: NotificationService,
     @InjectRedis() private readonly redis: Redis,
   ) {}
 
@@ -82,12 +84,6 @@ export class AuthService {
       };
     }
   }
-
-  async updateUser(
-    userId: string,
-    updateUserDto: UpdateUserDto,
-    image?: Express.Multer.File,
-  ) {}
 
   async login(data: LoginDto) {
     const foundUser = await this.prisma.user.findUnique({
@@ -237,23 +233,30 @@ export class AuthService {
 
   async registerUser(payload: CreateUserDto, currentUser: any) {
     const { email, password, username, role } = payload;
-
     const isAdmin = currentUser?.role === Role.ADMIN;
 
+    // ── Duplicate checks ──────────────────────────────────────────────────
     const existingEmail = await this.prisma.user.findUnique({
       where: { email },
     });
-    if (existingEmail) {
+    if (existingEmail)
       throw new BadRequestException('Email already registered');
-    }
 
     const existingUsername = await this.prisma.user.findUnique({
       where: { username },
     });
-    if (existingUsername) {
+    if (existingUsername)
       throw new BadRequestException('Username already taken');
-    }
 
+    // ── Activation rules ──────────────────────────────────────────────────
+    const requiresApproval =
+      role === Role.PROPERTY_MANAGER || role === Role.OPERATIONAL;
+
+    const isActive = isAdmin || role === Role.AUTHORIZED_VIEWER;
+
+    // ── Create user ───────────────────────────────────────────────────────
+    // notif_* fields are NOT passed here at all.
+    // Prisma @default(true) on every notif_ field handles the seeding automatically.
     const hashedPassword = await bcrypt.hash(
       password,
       appConfig().security.salt,
@@ -264,18 +267,46 @@ export class AuthService {
         email,
         password: hashedPassword,
         username,
-        role: isAdmin ? role : Role.AUTHORIZED_VIEWER,
-        status: isAdmin ? UserStatus.ACTIVE : UserStatus.DEACTIVATED,
-        approved_at: isAdmin ? new Date() : null,
+        role: isAdmin ? role : role,
+        status: isActive ? UserStatus.ACTIVE : UserStatus.DEACTIVATED,
+        approved_at: isActive ? new Date() : null,
         approved_by: isAdmin ? currentUser.userId : null,
       },
     });
+
+    // ── Fire notifications ────────────────────────────────────────────────
+    const admins = await this.prisma.user.findMany({
+      where: { role: Role.ADMIN },
+      select: { id: true },
+    });
+    const adminIds = admins.map((a) => a.id);
+    const userName =
+      `${newUser.first_name ?? ''} ${newUser.last_name ?? ''}`.trim() ||
+      newUser.username;
+
+    if (requiresApproval) {
+      await this.notificationService.newUserApprovalRequest({
+        adminIds,
+        newUserId: newUser.id,
+        userName,
+        userRole: newUser.role,
+      });
+    } else {
+      await this.notificationService.newUserRegistration({
+        adminIds,
+        newUserId: newUser.id,
+        userName,
+        userRole: newUser.role,
+      });
+    }
 
     return {
       success: true,
       message: isAdmin
         ? 'User created successfully'
-        : 'Registration successful. Awaiting admin approval.',
+        : requiresApproval
+          ? 'Registration successful. Awaiting admin approval.'
+          : 'Registration successful.',
       data: {
         id: newUser.id,
         email: newUser.email,
@@ -453,42 +484,5 @@ export class AuthService {
       success: true,
       message: 'Verification email sent to your email address.',
     };
-  }
-
-  async changePassword({ user_id, oldPassword, newPassword }) {
-    // try {
-    //   const user = await this.userRepository.getUserDetails(user_id);
-    //   if (user) {
-    //     const _isValidPassword = await this.userRepository.validatePassword({
-    //       email: user.email,
-    //       password: oldPassword,
-    //     });
-    //     if (_isValidPassword) {
-    //       await this.userRepository.changePassword({
-    //         email: user.email,
-    //         password: newPassword,
-    //       });
-    //       return {
-    //         success: true,
-    //         message: 'Password updated successfully',
-    //       };
-    //     } else {
-    //       return {
-    //         success: false,
-    //         message: 'Invalid password',
-    //       };
-    //     }
-    //   } else {
-    //     return {
-    //       success: false,
-    //       message: 'Email not found',
-    //     };
-    //   }
-    // } catch (error) {
-    //   return {
-    //     success: false,
-    //     message: error.message,
-    //   };
-    // }
   }
 }

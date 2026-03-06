@@ -31,6 +31,10 @@ export default () => ({
     url: String(process.env.DATABASE_URL),
   },
 
+  cors: {
+    origins: process.env.CORS_ORIGINS?.split(',') || [],
+  },
+
   redis: {
     host: process.env.REDIS_HOST,
     password: process.env.REDIS_PASSWORD,

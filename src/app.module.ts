@@ -20,6 +20,7 @@ import { PropertyAccessModule } from './modules/property-access/property-access.
 import { DashboardTemplateModule } from './modules/admin/dashboard-templates/templates.module';
 import { InspectionCriteriaModule } from './modules/admin/inspection-criteria/inspection-criteria.module';
 import { InspectionModule } from './modules/inspections/inspections.module';
+import { NotificationModule } from './modules/notification/notification.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { InspectionModule } from './modules/inspections/inspections.module';
     InspectionCriteriaModule,
     DashboardTemplateModule,
     InspectionModule,
+    NotificationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

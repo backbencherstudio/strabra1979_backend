@@ -24,7 +24,7 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
   app.enableCors({
     credentials: true,
-    origin: ['http://localhost:3000'],
+    origin: appConfig().cors.origins,
   });
   app.use(helmet());
   // Enable it, if special charactrers not encoding perfectly
