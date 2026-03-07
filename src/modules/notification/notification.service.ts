@@ -528,6 +528,7 @@ export class NotificationService {
 
     return {
       success: true,
+      message: 'Notifications fetched successfully',
       data: notifications,
       meta: {
         total,

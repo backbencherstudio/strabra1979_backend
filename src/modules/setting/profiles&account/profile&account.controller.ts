@@ -22,9 +22,10 @@ import { UpdateTimezoneDto } from './dto/update-timezone.dto';
 import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
 import { ProfileService } from './profile&account.service';
 import { UpdateNotificationPreferencesDto } from './dto/notification-preference.dto';
+import { SWAGGER_AUTH } from 'src/common/swagger/swagger-auth';
 
 @ApiTags('Profile & Account')
-@ApiBearerAuth()
+@ApiBearerAuth(SWAGGER_AUTH.admin)
 @UseGuards(JwtAuthGuard)
 @Controller('profile')
 export class ProfileController {
