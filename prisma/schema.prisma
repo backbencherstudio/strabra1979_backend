@@ -30,6 +30,7 @@ model User {
   avatar     String?
 
   // Timezone (from settings screen)
+  is_set_timezone_automatic Boolean @default(true) // if true, we auto-detect timezone from browser and update timezone field; if false, we use the manually set timezone value and never override it
   timezone String? @default("UTC")
 
   role              Role      @default(AUTHORIZED_VIEWER)

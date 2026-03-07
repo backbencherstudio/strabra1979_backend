@@ -30,6 +30,7 @@ export class ProfileService {
         role: true,
         status: true,
         timezone: true,
+        is_set_timezone_automatic: true,
         email_verified_at: true,
         // Property Manager notifications
         notif_pm_new_property_dashboard_assigned: true,
@@ -173,10 +174,16 @@ export class ProfileService {
     const updated = await this.prisma.user.update({
       where: { id: userId },
       data: {
-        timezone: dto.auto_timezone ? 'auto' : dto.timezone,
+        timezone: dto.timezone,
+        is_set_timezone_automatic: dto.auto_timezone,
         updated_at: new Date(),
       },
-      select: { id: true, timezone: true, updated_at: true },
+      select: {
+        id: true,
+        timezone: true,
+        is_set_timezone_automatic: true,
+        updated_at: true,
+      },
     });
 
     return {
