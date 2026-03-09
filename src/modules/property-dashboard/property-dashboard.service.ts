@@ -12,15 +12,19 @@ import {
 } from './dto/property-dashboard.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Role } from 'src/common/guard/role/role.enum';
+import { ActivityCategory } from 'prisma/generated/enums';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class PropertyDashboardService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationService,
+  ) {}
 
   // ─── 1. CREATE PROPERTY + DASHBOARD ────────────────────────────────────────
 
   async createProperty(dto: CreatePropertyDto, adminId: string) {
-    // Resolve template
     let template = dto.templateId
       ? await this.prisma.dashboardTemplate.findFirst({
           where: { id: dto.templateId, status: 'ACTIVE' },
@@ -36,23 +40,22 @@ export class PropertyDashboardService {
       );
     }
 
-    // Validate property manager if provided
+    let pmUser = null;
     if (dto.propertyManagerId) {
-      const pm = await this.prisma.user.findFirst({
+      pmUser = await this.prisma.user.findFirst({
         where: {
           id: dto.propertyManagerId,
           role: Role.PROPERTY_MANAGER,
           isDeleted: false,
         },
       });
-      if (!pm) {
+      if (!pmUser) {
         throw new NotFoundException(
           `Property Manager with id "${dto.propertyManagerId}" not found.`,
         );
       }
     }
 
-    // Create property + dashboard in a transaction so either both succeed or neither does
     const result = await this.prisma.$transaction(async (tx) => {
       const property = await tx.property.create({
         data: {
@@ -67,8 +70,6 @@ export class PropertyDashboardService {
         },
       });
 
-      // Freeze a snapshot of the template sections at creation time
-      // so future template edits never break this dashboard's layout
       const dashboard = await tx.propertyDashboard.create({
         data: {
           propertyId: property.id,
@@ -77,23 +78,27 @@ export class PropertyDashboardService {
         },
       });
 
-      // Audit log
-      await tx.auditLog.create({
+      await tx.activityLog.create({
         data: {
-          user_id: adminId,
-          property_id: property.id,
-          action: 'property_created',
-          entity_type: 'property',
-          entity_id: property.id,
-          metadata: {
-            propertyName: property.name,
-            templateId: dto.templateId ?? null,
-          },
+          category: ActivityCategory.PROPERTY_DASHBOARD_UPDATE,
+          actor_role: Role.ADMIN,
+          message: `${property.name} property dashboard created`,
         },
       });
 
       return { property, dashboard };
     });
+
+    // ── Notify PM if assigned at creation time ─────────────────────────────
+    if (pmUser && result.dashboard) {
+      await this.notifications.dashboardAssigned({
+        propertyManagerId: pmUser.id,
+        assignedById: adminId,
+        propertyId: result.property.id,
+        propertyName: result.property.name,
+        dashboardId: result.dashboard.id,
+      });
+    }
 
     return {
       success: true,
@@ -105,7 +110,6 @@ export class PropertyDashboardService {
   // ─── 2. LIST PROPERTIES ─────────────────────────────────────────────────────
 
   async findAll(requestingUserId: string, requestingUserRole: string) {
-    // Admins see every property; other roles see only their assigned ones
     if (requestingUserRole === Role.ADMIN) {
       const result = await this.prisma.property.findMany({
         where: { status: { not: 'ARCHIVED' } },
@@ -123,7 +127,6 @@ export class PropertyDashboardService {
         },
         orderBy: { createdAt: 'desc' },
       });
-
       return {
         success: true,
         message: 'Properties retrieved successfully',
@@ -145,7 +148,6 @@ export class PropertyDashboardService {
         },
         orderBy: { createdAt: 'desc' },
       });
-
       return {
         success: true,
         message: 'Properties retrieved successfully',
@@ -153,8 +155,6 @@ export class PropertyDashboardService {
       };
     }
 
-    // AUTHORIZED_VIEWER / OPERATIONAL — needs a PropertyAccess join table (future)
-    // For now, return empty so the API doesn't throw
     return [];
   }
 
@@ -171,7 +171,7 @@ export class PropertyDashboardService {
           include: {
             inspections: {
               orderBy: { createdAt: 'desc' },
-              take: 1, // latest inspection for health snapshot
+              take: 1,
               include: { mediaFiles: true },
             },
             documents: {
@@ -219,16 +219,35 @@ export class PropertyDashboardService {
       },
     });
 
-    await this.prisma.auditLog.create({
+    await this.prisma.activityLog.create({
       data: {
-        user_id: adminId,
-        property_id: propertyId,
-        action: 'property_updated',
-        entity_type: 'property',
-        entity_id: propertyId,
-        metadata: dto as object,
+        category: ActivityCategory.PROPERTY_DASHBOARD_UPDATE,
+        actor_role: Role.ADMIN,
+        message: `${updated.name} property details updated`,
       },
     });
+
+    // ── Notify all users with access to this property ──────────────────────
+    const accesses = await this.prisma.propertyAccess.findMany({
+      where: { propertyId, revokedAt: null },
+      select: { userId: true },
+    });
+
+    const dashboard = await this.prisma.propertyDashboard.findUnique({
+      where: { propertyId },
+      select: { id: true },
+    });
+
+    if (accesses.length && dashboard) {
+      await this.notifications.dashboardUpdated({
+        userIds: accesses.map((a) => a.userId),
+        updatedById: adminId,
+        propertyId,
+        propertyName: updated.name,
+        dashboardId: dashboard.id,
+        changeNote: 'Property details have been updated',
+      });
+    }
 
     return {
       success: true,
@@ -251,14 +270,11 @@ export class PropertyDashboardService {
       data: { nextInspectionDate: new Date(dto.scheduledAt) },
     });
 
-    await this.prisma.auditLog.create({
+    await this.prisma.activityLog.create({
       data: {
-        user_id: adminId,
-        property_id: propertyId,
-        action: 'inspection_scheduled',
-        entity_type: 'property',
-        entity_id: propertyId,
-        metadata: { scheduledAt: dto.scheduledAt },
+        category: ActivityCategory.PROPERTY_DASHBOARD_UPDATE,
+        actor_role: Role.ADMIN,
+        message: `Inspection scheduled for ${updated.name} on ${new Date(dto.scheduledAt).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`,
       },
     });
 
@@ -283,82 +299,108 @@ export class PropertyDashboardService {
     });
     if (!user) throw new NotFoundException('User not found.');
 
-    // Guard: expiry must be in the future if provided
+    const property = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+      select: { name: true },
+    });
+    if (!property) throw new NotFoundException('Property not found.');
+
     if (dto.expiresAt && new Date(dto.expiresAt) <= new Date()) {
       throw new BadRequestException('expiresAt must be a future date.');
     }
 
+    const dashboard = await this.prisma.propertyDashboard.findUnique({
+      where: { propertyId },
+      select: { id: true },
+    });
+
+    // ── Property Manager ───────────────────────────────────────────────────
     if (user.role === Role.PROPERTY_MANAGER) {
-      // expiresAt not applicable for Property Manager — they are assigned on the property directly
       const updated = await this.prisma.property.update({
         where: { id: propertyId },
         data: { propertyManagerId: dto.userId },
       });
 
-      await this.prisma.auditLog.create({
+      await this.prisma.activityLog.create({
         data: {
-          user_id: adminId,
-          property_id: propertyId,
-          action: 'property_manager_assigned',
-          entity_type: 'property',
-          entity_id: propertyId,
-          metadata: {
-            assignedUserId: dto.userId,
-            assignedUserName: user.name,
-            assignedUserRole: user.role,
-          },
+          category: ActivityCategory.USER_ACCESS,
+          actor_role: Role.PROPERTY_MANAGER,
+          message: `${user.name} was assigned to ${updated.name} dashboard`,
         },
       });
+
+      // ── Notify the PM ────────────────────────────────────────────────────
+      if (dashboard) {
+        await this.notifications.dashboardAssigned({
+          propertyManagerId: user.id,
+          assignedById: adminId,
+          propertyId,
+          propertyName: updated.name,
+          dashboardId: dashboard.id,
+        });
+      }
 
       return {
         success: true,
         message: 'Property Manager assigned successfully',
         data: updated,
       };
-    } else {
-      const access = await this.prisma.propertyAccess.upsert({
-        where: { propertyId_userId: { propertyId, userId: dto.userId } },
-        create: {
-          propertyId,
-          userId: dto.userId,
-          grantedBy: adminId,
-          grantedAt: new Date(),
-          expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null, // ← new
-          revokedAt: null,
-        },
-        update: {
-          grantedBy: adminId,
-          grantedAt: new Date(),
-          expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null, // ← new
-          revokedAt: null,
-          revokedBy: null,
-        },
-      });
-
-      await this.prisma.auditLog.create({
-        data: {
-          user_id: adminId,
-          property_id: propertyId,
-          action: 'property_access_granted',
-          entity_type: 'property',
-          entity_id: propertyId,
-          metadata: {
-            assignedUserId: dto.userId,
-            assignedUserName: user.name,
-            assignedUserRole: user.role,
-            expiresAt: dto.expiresAt ?? null,
-          },
-        },
-      });
-
-      return {
-        success: true,
-        message: dto.expiresAt
-          ? `Access granted — expires ${new Date(dto.expiresAt).toDateString()}`
-          : 'User access granted successfully',
-        data: access,
-      };
     }
+
+    // ── Other roles (Authorized Viewer, Operational, etc.) ─────────────────
+    const access = await this.prisma.propertyAccess.upsert({
+      where: { propertyId_userId: { propertyId, userId: dto.userId } },
+      create: {
+        propertyId,
+        userId: dto.userId,
+        grantedBy: adminId,
+        grantedAt: new Date(),
+        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+        revokedAt: null,
+      },
+      update: {
+        grantedBy: adminId,
+        grantedAt: new Date(),
+        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+        revokedAt: null,
+        revokedBy: null,
+      },
+    });
+
+    await this.prisma.activityLog.create({
+      data: {
+        category: ActivityCategory.USER_ACCESS,
+        actor_role: user.role,
+        message: dto.expiresAt
+          ? `${user.name} was given view access to ${property.name} dashboard until ${new Date(dto.expiresAt).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`
+          : `${user.name} was given view access to ${property.name} dashboard`,
+      },
+    });
+
+    // ── Notify the user ──────────────────────────────────────────────────────
+    const admin = await this.prisma.user.findUnique({
+      where: { id: adminId },
+      select: { name: true },
+    });
+
+    if (dashboard) {
+      await this.notifications.dashboardShared({
+        userId: user.id,
+        sharedById: adminId,
+        sharerName: admin?.name ?? 'Admin',
+        propertyId,
+        propertyName: property.name,
+        dashboardId: dashboard.id,
+      });
+    }
+
+    return {
+      success: true,
+      message: dto.expiresAt
+        ? `Access granted — expires ${new Date(dto.expiresAt).toDateString()}`
+        : 'User access granted successfully',
+      data: access,
+    };
   }
 
   // ─── 7. GET PROPERTY ACCESS LIST ────────────────────────────────────────────
@@ -367,7 +409,6 @@ export class PropertyDashboardService {
     await this._assertPropertyExists(propertyId);
 
     const [property, accesses] = await Promise.all([
-      // Property manager (assigned directly on property)
       this.prisma.property.findUnique({
         where: { id: propertyId },
         select: {
@@ -385,13 +426,8 @@ export class PropertyDashboardService {
           },
         },
       }),
-
-      // All users granted access via PropertyAccess join table
       this.prisma.propertyAccess.findMany({
-        where: {
-          propertyId,
-          revokedAt: null, // only active (non-revoked) access
-        },
+        where: { propertyId, revokedAt: null },
         include: {
           user: {
             select: {
@@ -424,7 +460,7 @@ export class PropertyDashboardService {
     };
   }
 
-  // ─── 10. SET ACCESS EXPIRATION DATE ──────────────────────────────────────────
+  // ─── 8. SET ACCESS EXPIRATION DATE ──────────────────────────────────────────
 
   async setAccessExpiration(
     propertyId: string,
@@ -443,14 +479,11 @@ export class PropertyDashboardService {
       data: { access_expires_at: new Date(dto.accessExpiresAt) },
     });
 
-    await this.prisma.auditLog.create({
+    await this.prisma.activityLog.create({
       data: {
-        user_id: adminId,
-        property_id: propertyId,
-        action: 'user_access_expiration_set',
-        entity_type: 'user',
-        entity_id: dto.userId,
-        metadata: { newExpiry: dto.accessExpiresAt },
+        category: ActivityCategory.USER_ACCESS,
+        actor_role: Role.ADMIN,
+        message: `${user.name} access expiration set to ${new Date(dto.accessExpiresAt).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`,
       },
     });
 
@@ -460,6 +493,7 @@ export class PropertyDashboardService {
       user: updatedUser,
     };
   }
+
   // ─── PRIVATE HELPERS ─────────────────────────────────────────────────────────
 
   private async _assertPropertyExists(propertyId: string) {

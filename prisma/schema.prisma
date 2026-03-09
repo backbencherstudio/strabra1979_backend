@@ -31,7 +31,7 @@ model User {
 
   // Timezone (from settings screen)
   is_set_timezone_automatic Boolean @default(true) // if true, we auto-detect timezone from browser and update timezone field; if false, we use the manually set timezone value and never override it
-  timezone String? @default("UTC")
+  timezone                  String? @default("UTC")
 
   role              Role      @default(AUTHORIZED_VIEWER)
   email_verified_at DateTime?
@@ -78,9 +78,6 @@ model User {
 
   managedProperties Property[]   @relation("PropertyManager")
   inspections       Inspection[]
-
-  // Audit: actions performed by this user
-  audit_logs AuditLog[]
 
   propertyAccesses PropertyAccess[]        @relation("PropertyAccesses")
   accessRequests   PropertyAccessRequest[] @relation("AccessRequests")
@@ -212,7 +209,6 @@ model Property {
   propertyManager User?                   @relation("PropertyManager", fields: [propertyManagerId], references: [id])
   activeTemplate  DashboardTemplate?      @relation(fields: [activeTemplateId], references: [id])
   dashboard       PropertyDashboard?
-  auditLogs       AuditLog[]
   accesses        PropertyAccess[]
   accessRequests  PropertyAccessRequest[]
 
@@ -239,7 +235,6 @@ model PropertyDashboard {
   property    Property     @relation(fields: [propertyId], references: [id])
   inspections Inspection[]
   documents   Document[]
-  auditLogs   AuditLog[]
 
   @@map("property_dashboards")
 }
@@ -391,36 +386,25 @@ model Document {
   uploadedAt  DateTime @default(now())
 
   dashboard PropertyDashboard @relation(fields: [dashboardId], references: [id])
-  auditLogs AuditLog[]
 
   @@map("documents")
 }
 
-model AuditLog {
-  id         String   @id @default(cuid())
-  created_at DateTime @default(now())
+enum ActivityCategory {
+  PROPERTY_DASHBOARD_UPDATE
+  USER_ACCESS
+}
 
-  // Who did it
-  user_id String?
-  user    User?   @relation(fields: [user_id], references: [id])
+model ActivityLog {
+  id         String           @id @default(cuid())
+  created_at DateTime         @default(now())
+  category   ActivityCategory
+  message    String // "John Doe was given view access to Sunshade apartment dashboard"
+  actor_role Role? // just for the badge: ADMIN | PROPERTY_MANAGER | AUTHORIZED_VIEWER | OPERATIONAL
 
-  // What was affected
-  property_id String?
-  property    Property? @relation(fields: [property_id], references: [id])
-  document_id String?
-  document    Document? @relation(fields: [document_id], references: [id])
-
-  // What happened
-  // e.g. "file_upload" | "status_update" | "user_access_granted" | "user_access_revoked" | "login" | "password_reset"
-  action      String?
-  entity_type String? // "user" | "property" | "document"
-  entity_id   String?
-
-  // Snapshot of changes (JSON diff)
-  metadata           Json?
-  propertyDashboards PropertyDashboard[]
-
-  @@map("audit_logs")
+  @@index([created_at(sort: Desc)])
+  @@index([category, created_at(sort: Desc)])
+  @@map("activity_logs")
 }
 
 model NotificationEvent {
