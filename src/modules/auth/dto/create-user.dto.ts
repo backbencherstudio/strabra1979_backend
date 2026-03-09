@@ -34,7 +34,7 @@ export class CreateUserDto {
 export class LoginDto {
   @IsNotEmpty()
   @IsEmail()
-  @ApiProperty({ example: 'john@gmail.com' })
+  @ApiProperty({ example: 'admin@gmail.com' })
   email: string;
 
   @IsNotEmpty()

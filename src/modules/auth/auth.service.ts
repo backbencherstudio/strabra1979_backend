@@ -23,7 +23,7 @@ import {
   ResetPasswordDto,
   VerifyEmailDto,
 } from './dto/create-user.dto';
-import { Role, UserStatus } from 'prisma/generated/enums';
+import { ActivityCategory, Role, UserStatus } from 'prisma/generated/enums';
 import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
@@ -283,6 +283,16 @@ export class AuthService {
     const userName =
       `${newUser.first_name ?? ''} ${newUser.last_name ?? ''}`.trim() ||
       newUser.username;
+
+    await this.prisma.activityLog.create({
+      data: {
+        category: ActivityCategory.USER_ACCESS,
+        actor_role: newUser.role,
+        message: requiresApproval
+          ? `${userName} registered as ${newUser.role} and is awaiting approval`
+          : `${userName} registered as ${newUser.role}`,
+      },
+    });
 
     if (requiresApproval) {
       await this.notificationService.newUserApprovalRequest({

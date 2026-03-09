@@ -21,6 +21,8 @@ import { DashboardTemplateModule } from './modules/admin/dashboard-templates/tem
 import { InspectionCriteriaModule } from './modules/admin/inspection-criteria/inspection-criteria.module';
 import { InspectionModule } from './modules/inspections/inspections.module';
 import { NotificationModule } from './modules/notification/notification.module';
+import { InspectionFolderModule } from './modules/inspection-folder/inspection-folder.module';
+import { ActivityLogModule } from './modules/admin/activity/activity.module';
 
 @Module({
   imports: [
@@ -58,10 +60,12 @@ import { NotificationModule } from './modules/notification/notification.module';
     AdminSettingsModule,
     PropertyDashboardModule,
     PropertyAccessModule,
-    InspectionCriteriaModule,
     DashboardTemplateModule,
+    InspectionCriteriaModule,
     InspectionModule,
+    InspectionFolderModule,
     NotificationModule,
+    ActivityLogModule
   ],
   controllers: [AppController],
   providers: [AppService],

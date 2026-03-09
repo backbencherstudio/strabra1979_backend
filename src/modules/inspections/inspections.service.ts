@@ -5,6 +5,8 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { SubmitInspectionDto } from './dto/inspection.dto';
+import { ActivityCategory } from 'prisma/generated/enums';
+import { NotificationService } from '../notification/notification.service';
 
 interface ScoringCategory {
   key: string;
@@ -37,7 +39,14 @@ interface RepairConfig {
 
 @Injectable()
 export class InspectionService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationService,
+  ) {}
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // FIND ALL
+  // ─────────────────────────────────────────────────────────────────────────
 
   async findAll(filters: {
     page: number;
@@ -80,17 +89,11 @@ export class InspectionService {
           healthLabel: true,
           inspectedAt: true,
           createdAt: true,
-          inspector: {
-            select: { id: true, name: true, avatar: true },
-          },
+          inspector: { select: { id: true, name: true, avatar: true } },
           dashboard: {
             select: {
               property: {
-                select: {
-                  name: true,
-                  address: true,
-                  propertyType: true,
-                },
+                select: { name: true, address: true, propertyType: true },
               },
             },
           },
@@ -101,26 +104,23 @@ export class InspectionService {
 
     const total_pages = Math.ceil(total / limit);
 
-    // Flatten dashboard.property up to top level for cleaner response
-    const data = inspections.map((i) => ({
-      id: i.id,
-      status: i.status,
-      overallScore: i.overallScore,
-      healthLabel: i.healthLabel,
-      inspectedAt: i.inspectedAt,
-      createdAt: i.createdAt,
-      inspector: i.inspector,
-      property: {
-        name: i.dashboard?.property?.name,
-        address: i.dashboard?.property?.address,
-        propertyType: i.dashboard?.property?.propertyType,
-      },
-    }));
-
     return {
       success: true,
       message: 'Inspections fetched successfully',
-      data,
+      data: inspections.map((i) => ({
+        id: i.id,
+        status: i.status,
+        overallScore: i.overallScore,
+        healthLabel: i.healthLabel,
+        inspectedAt: i.inspectedAt,
+        createdAt: i.createdAt,
+        inspector: i.inspector,
+        property: {
+          name: i.dashboard?.property?.name,
+          address: i.dashboard?.property?.address,
+          propertyType: i.dashboard?.property?.propertyType,
+        },
+      })),
       meta: {
         total,
         page,
@@ -134,7 +134,6 @@ export class InspectionService {
 
   // ─────────────────────────────────────────────────────────────────────────
   // GET FORM
-  // Returns all criteria fields so frontend builds the form dynamically
   // ─────────────────────────────────────────────────────────────────────────
 
   async getInspectionForm(dashboardId: string) {
@@ -146,7 +145,6 @@ export class InspectionService {
       data: {
         dashboardId,
         criteriaId: criteria.id,
-        // Frontend renders each section from this — nothing is hardcoded
         form: {
           headerFields: criteria.headerFields,
           scoringCategories: criteria.scoringCategories,
@@ -161,7 +159,7 @@ export class InspectionService {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // SUBMIT — single call with all data + files
+  // SUBMIT INSPECTION
   // ─────────────────────────────────────────────────────────────────────────
 
   async submitInspection(
@@ -182,7 +180,7 @@ export class InspectionService {
     const thresholds =
       criteria.healthThresholdConfig as unknown as HealthThreshold;
 
-    // ── 1. Validate required header fields ───────────────────────────────────
+    // ── Validations ──────────────────────────────────────────────────────────
     for (const field of headerFields) {
       if (field.required && !dto.headerData?.[field.key]) {
         throw new BadRequestException(
@@ -191,7 +189,6 @@ export class InspectionService {
       }
     }
 
-    // ── 2. Validate scores against maxPoints ─────────────────────────────────
     for (const category of categories) {
       const submitted = dto.scores?.[category.key];
       if (submitted !== undefined && submitted.score > category.maxPoints) {
@@ -201,7 +198,6 @@ export class InspectionService {
       }
     }
 
-    // ── 3. Validate repair item statuses ─────────────────────────────────────
     const { statuses } = repairConfig;
     for (const item of dto.repairItems ?? []) {
       if (!statuses.includes(item.status)) {
@@ -211,7 +207,6 @@ export class InspectionService {
       }
     }
 
-    // ── 4. Validate mediaFieldKeys match criteria slots ──────────────────────
     const validSlotKeys = mediaSlots.map((s) => s.key);
     for (const key of dto.mediaFieldKeys ?? []) {
       if (!validSlotKeys.includes(key)) {
@@ -221,12 +216,12 @@ export class InspectionService {
       }
     }
 
-    // ── 5. Compute overall score ─────────────────────────────────────────────
-    const overallScore = categories.reduce((sum, cat) => {
-      return sum + (dto.scores?.[cat.key]?.score ?? 0);
-    }, 0);
+    // ── Compute score + health ────────────────────────────────────────────────
+    const overallScore = categories.reduce(
+      (sum, cat) => sum + (dto.scores?.[cat.key]?.score ?? 0),
+      0,
+    );
 
-    // ── 6. Derive health label + remaining life ───────────────────────────────
     let healthLabel = 'Poor';
     let remainingLife = `${thresholds.poor.remainingLifeMinYears}-${thresholds.poor.remainingLifeMaxYears} Years`;
 
@@ -238,7 +233,6 @@ export class InspectionService {
       remainingLife = `${thresholds.fair.remainingLifeMinYears}-${thresholds.fair.remainingLifeMaxYears} Years`;
     }
 
-    // ── 7. Stamp repair items with stable IDs ────────────────────────────────
     const repairItems = (dto.repairItems ?? []).map((item, i) => ({
       id: `repair_${Date.now()}_${i}`,
       title: item.title,
@@ -246,7 +240,7 @@ export class InspectionService {
       description: item.description ?? '',
     }));
 
-    // ── 8. Create the Inspection row ─────────────────────────────────────────
+    // ── Create inspection row ─────────────────────────────────────────────────
     const inspection = await this.prisma.inspection.create({
       data: {
         dashboardId,
@@ -264,14 +258,12 @@ export class InspectionService {
       },
     });
 
-    // ── 9. Upload files and create MediaFile rows ────────────────────────────
+    // ── Upload files ──────────────────────────────────────────────────────────
     const mediaFiles = [];
     for (let i = 0; i < (files ?? []).length; i++) {
       const file = files[i];
       const mediaFieldKey = dto.mediaFieldKeys?.[i] ?? 'mediaFiles';
       const slot = mediaSlots.find((s) => s.key === mediaFieldKey);
-
-      // TODO: replace with your actual S3/storage upload
       const url = `https://your-storage.example.com/inspections/${inspection.id}/${Date.now()}_${file.originalname}`;
 
       const mediaFile = await this.prisma.mediaFile.create({
@@ -297,20 +289,72 @@ export class InspectionService {
       mediaFiles.push(mediaFile);
     }
 
+    // ── Fetch property + inspector name for log/notification ─────────────────
+    const propertyName = dashboard.property?.name ?? 'Unknown Property';
+
+    const inspector = await this.prisma.user.findUnique({
+      where: { id: inspectorId },
+      select: { name: true, role: true },
+    });
+
+    // ── Activity log ──────────────────────────────────────────────────────────
+    await this.prisma.activityLog.create({
+      data: {
+        category: ActivityCategory.PROPERTY_DASHBOARD_UPDATE,
+        actor_role: inspector?.role ?? null,
+        message: `${inspector?.name ?? 'Inspector'} submitted an inspection report for ${propertyName}`,
+      },
+    });
+
+    // ── Notify admins ─────────────────────────────────────────────────────────
+    const admins = await this.prisma.user.findMany({
+      where: { role: 'ADMIN', status: 'ACTIVE', isDeleted: false },
+      select: { id: true },
+    });
+
+    await this.notifications.inspectionReportUpdate({
+      adminIds: admins.map((a) => a.id),
+      inspectorId,
+      inspectorName: inspector?.name ?? 'Inspector',
+      propertyId: dashboard.property?.id ?? dashboardId,
+      propertyName,
+      inspectionId: inspection.id,
+    });
+
+    // ── Notify users with dashboard access (dashboard updated) ────────────────
+    const accesses = await this.prisma.propertyAccess.findMany({
+      where: {
+        propertyId: dashboard.property?.id,
+        revokedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
+      select: { userId: true },
+    });
+
+    if (accesses.length) {
+      await this.notifications.dashboardUpdated({
+        userIds: accesses.map((a) => a.userId),
+        updatedById: inspectorId,
+        propertyId: dashboard.property?.id ?? dashboardId,
+        propertyName,
+        dashboardId,
+        changeNote: 'New inspection report has been submitted',
+      });
+    }
+
     return {
       success: true,
       message: 'Inspection submitted successfully',
       data: {
         ...inspection,
         mediaFiles,
-        // Computed summary shown on dashboard
         summary: { overallScore, healthLabel, remainingLife },
       },
     };
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // GET SINGLE INSPECTION
+  // FIND ONE
   // ─────────────────────────────────────────────────────────────────────────
 
   async findOne(inspectionId: string) {
@@ -329,7 +373,7 @@ export class InspectionService {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // LIST ALL FOR A DASHBOARD
+  // FIND ALL FOR DASHBOARD
   // ─────────────────────────────────────────────────────────────────────────
 
   async findAllForDashboard(dashboardId: string) {
@@ -379,9 +423,7 @@ export class InspectionService {
       where: { id: dashboardId },
       include: {
         property: {
-          include: {
-            activeTemplate: { include: { criteria: true } },
-          },
+          include: { activeTemplate: { include: { criteria: true } } },
         },
       },
     });

@@ -155,16 +155,6 @@ export class SettingsService {
       },
     });
 
-    await this.prisma.auditLog.create({
-      data: {
-        user_id: adminId,
-        entity_type: 'user_level_notification_settings',
-        entity_id: this.ULNS_ID,
-        action: 'user_level_notifications_updated',
-        metadata: { fields_changed: Object.keys(dto) },
-      },
-    });
-
     return {
       success: true,
       message: 'User level notification settings updated successfully',
@@ -220,16 +210,6 @@ export class SettingsService {
         ...(dto.primary_color_label !== undefined && {
           primary_color_label: dto.primary_color_label,
         }),
-      },
-    });
-
-    await this.prisma.auditLog.create({
-      data: {
-        user_id: adminId,
-        entity_type: 'branding_settings',
-        entity_id: this.BRANDING_ID,
-        action: 'branding_settings_updated',
-        metadata: { fields_changed: Object.keys(dto) },
       },
     });
 

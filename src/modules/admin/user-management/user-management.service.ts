@@ -161,20 +161,6 @@ export class UserManagementService {
       },
     });
 
-    // Audit log
-    await this.prisma.auditLog.create({
-      data: {
-        user_id: currentUser.userId,
-        entity_type: 'user',
-        entity_id: id,
-        action: `status_changed_to_${dto.status.toLowerCase()}`,
-        metadata: {
-          previous_status: user.status,
-          new_status: dto.status,
-        },
-      },
-    });
-
     return {
       success: true,
       message: `User status changed to ${dto.status} successfully`,

@@ -23,10 +23,25 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
   app.enableCors({
+    origin: true,
     credentials: true,
-    origin: '*',
   });
-  app.use(helmet());
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: [`'self'`],
+          connectSrc: [`'self'`, `https:`, `http:`], // ← allows Swagger to call any https/http URL
+          scriptSrc: [`'self'`, `'unsafe-inline'`, `'unsafe-eval'`],
+          styleSrc: [`'self'`, `'unsafe-inline'`],
+          imgSrc: [`'self'`, `data:`, `https:`],
+          workerSrc: [`'self'`, `blob:`],
+          frameSrc: [`'self'`],
+        },
+      },
+      crossOriginEmbedderPolicy: false, // ← needed for Swagger UI assets
+    }),
+  );
   // Enable it, if special charactrers not encoding perfectly
   // app.use((req, res, next) => {
   //   // Only force content-type for specific API routes, not Swagger or assets

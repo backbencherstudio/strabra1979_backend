@@ -87,16 +87,6 @@ export class ProfileService {
       },
     });
 
-    await this.prisma.auditLog.create({
-      data: {
-        user_id: userId,
-        entity_type: 'user',
-        entity_id: userId,
-        action: 'profile_updated',
-        metadata: { fields_changed: Object.keys(dto) },
-      },
-    });
-
     return {
       success: true,
       message: 'Profile updated successfully',
@@ -141,16 +131,6 @@ export class ProfileService {
     await this.prisma.user.update({
       where: { id: userId },
       data: { password: hashed, updated_at: new Date() },
-    });
-
-    await this.prisma.auditLog.create({
-      data: {
-        user_id: userId,
-        entity_type: 'user',
-        entity_id: userId,
-        action: 'password_changed',
-        metadata: {},
-      },
     });
 
     return { success: true, message: 'Password changed successfully' };
