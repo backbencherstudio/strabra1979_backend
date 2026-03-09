@@ -109,88 +109,224 @@ export class PropertyDashboardService {
 
   // ─── 2. LIST PROPERTIES ─────────────────────────────────────────────────────
 
-  async findAll(requestingUserId: string, requestingUserRole: string) {
-    if (requestingUserRole === Role.ADMIN) {
-      const result = await this.prisma.property.findMany({
-        where: { status: { not: 'ARCHIVED' } },
-        include: {
-          propertyManager: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              avatar: true,
-              inspections: true,
-            },
-          },
-          dashboard: { select: { id: true, updatedAt: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-      return {
-        success: true,
-        message: 'Properties retrieved successfully',
-        data: result,
-      };
-    }
+  async findAll(
+    requestingUserId: string,
+    requestingUserRole: string,
+    filters: {
+      page: number;
+      limit: number;
+      search?: string;
+      status?: string;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+      dateFrom?: string;
+      dateTo?: string;
+    },
+  ) {
+    const {
+      page = 1,
+      limit = 10,
+      search,
+      status,
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
+      dateFrom,
+      dateTo,
+    } = filters;
 
+    const skip = (page - 1) * limit;
+
+    // ── Base where clause ────────────────────────────────────────────────────
+    const where: any = {
+      ...(status ? { status } : { status: { not: 'ARCHIVED' } }),
+      ...(search && {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { address: { contains: search, mode: 'insensitive' } },
+        ],
+      }),
+      ...(dateFrom || dateTo
+        ? {
+            createdAt: {
+              ...(dateFrom && { gte: new Date(dateFrom) }),
+              ...(dateTo && { lte: new Date(dateTo) }),
+            },
+          }
+        : {}),
+    };
+
+    // ── Role-based scope ─────────────────────────────────────────────────────
     if (requestingUserRole === Role.PROPERTY_MANAGER) {
-      const result = await this.prisma.property.findMany({
-        where: {
-          propertyManagerId: requestingUserId,
-          status: { not: 'ARCHIVED' },
+      where.propertyManagerId = requestingUserId;
+    }
+
+    const orderBy = { [sortBy]: sortOrder };
+
+    const dashboardSelect = {
+      select: {
+        id: true,
+        updatedAt: true,
+        propertyId: true,
+        inspections: {
+          orderBy: { createdAt: 'desc' as const },
+          take: 1,
+          select: { overallScore: true, healthLabel: true },
         },
-        include: {
-          propertyManager: {
-            select: { id: true, name: true, email: true, avatar: true },
+      },
+    };
+
+    // ── Admin ────────────────────────────────────────────────────────────────
+    if (requestingUserRole === Role.ADMIN) {
+      const [properties, total] = await this.prisma.$transaction([
+        this.prisma.property.findMany({
+          where,
+          skip,
+          take: limit,
+          orderBy,
+          include: {
+            propertyManager: {
+              select: { id: true, name: true, email: true, avatar: true },
+            },
+            dashboard: dashboardSelect,
           },
-          dashboard: { select: { id: true, updatedAt: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-      });
+        }),
+        this.prisma.property.count({ where }),
+      ]);
+
+      const total_pages = Math.ceil(total / limit);
+
       return {
         success: true,
         message: 'Properties retrieved successfully',
-        data: result,
+        data: properties.map((p) => ({
+          ...p,
+          dashboard: p.dashboard
+            ? {
+                ...p.dashboard,
+                latestInspection: p.dashboard.inspections[0] ?? null,
+                inspections: undefined,
+              }
+            : null,
+        })),
+        meta: {
+          total,
+          page,
+          limit,
+          total_pages,
+          has_next_page: page < total_pages,
+          has_prev_page: page > 1,
+        },
       };
     }
 
-    return [];
-  }
-
-  // ─── 3. GET SINGLE PROPERTY + DASHBOARD ─────────────────────────────────────
-
-  async findOne(propertyId: string) {
-    const property = await this.prisma.property.findUnique({
-      where: { id: propertyId },
-      include: {
-        propertyManager: {
-          select: { id: true, name: true, email: true, avatar: true },
-        },
-        dashboard: {
+    // ── Property Manager ─────────────────────────────────────────────────────
+    if (requestingUserRole === Role.PROPERTY_MANAGER) {
+      const [properties, total] = await this.prisma.$transaction([
+        this.prisma.property.findMany({
+          where,
+          skip,
+          take: limit,
+          orderBy,
           include: {
-            inspections: {
-              orderBy: { createdAt: 'desc' },
-              take: 1,
-              include: { mediaFiles: true },
+            propertyManager: {
+              select: { id: true, name: true, email: true, avatar: true },
             },
-            documents: {
-              where: { isArchived: false },
-              orderBy: { uploadedAt: 'desc' },
-            },
+            dashboard: dashboardSelect,
           },
-        },
-        activeTemplate: true,
-      },
-    });
+        }),
+        this.prisma.property.count({ where }),
+      ]);
 
-    if (!property)
-      throw new NotFoundException(`Property "${propertyId}" not found.`);
+      const total_pages = Math.ceil(total / limit);
+
+      return {
+        success: true,
+        message: 'Properties retrieved successfully',
+        data: properties.map((p) => ({
+          ...p,
+          dashboard: p.dashboard
+            ? {
+                ...p.dashboard,
+                latestInspection: p.dashboard.inspections[0] ?? null,
+                inspections: undefined,
+              }
+            : null,
+        })),
+        meta: {
+          total,
+          page,
+          limit,
+          total_pages,
+          has_next_page: page < total_pages,
+          has_prev_page: page > 1,
+        },
+      };
+    }
 
     return {
       success: true,
-      message: 'Property and dashboard retrieved successfully',
-      data: property,
+      data: [],
+      meta: { total: 0, page, limit, total_pages: 0 },
+    };
+  }
+
+  // ─── GET SINGLE PROPERTY + DASHBOARD ──────────────────────────────────────────
+
+  async findOne(propertyId: string) {
+    // ── Resolve dashboardId from propertyId ───────────────────────────────────
+    const dashboard = await this.prisma.propertyDashboard.findUnique({
+      where: { propertyId },
+      select: { id: true },
+    });
+
+    if (!dashboard)
+      throw new NotFoundException(
+        `No dashboard found for property "${propertyId}".`,
+      );
+
+    return this.findOneByDashboard(dashboard.id);
+  }
+
+  // ─── GET BY DASHBOARD ID (primary — used by all downstream routes) ─────────
+
+  async findOneByDashboard(dashboardId: string) {
+    const dashboard = await this.prisma.propertyDashboard.findUnique({
+      where: { id: dashboardId },
+      include: {
+        property: {
+          include: {
+            propertyManager: {
+              select: { id: true, name: true, email: true, avatar: true },
+            },
+            activeTemplate: true,
+          },
+        },
+        inspections: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          include: { mediaFiles: true },
+        },
+        documents: {
+          where: { isArchived: false },
+          orderBy: { uploadedAt: 'desc' },
+        },
+        folders: {
+          include: {
+            items: {
+              select: { inspectionId: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!dashboard)
+      throw new NotFoundException(`Dashboard "${dashboardId}" not found.`);
+
+    return {
+      success: true,
+      message: 'Dashboard retrieved successfully',
+      data: dashboard,
     };
   }
 

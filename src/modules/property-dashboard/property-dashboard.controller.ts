@@ -15,6 +15,7 @@ import {
   ApiResponse,
   ApiBearerAuth,
   ApiParam,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { PropertyDashboardService } from './property-dashboard.service';
 import {
@@ -45,16 +46,51 @@ export class PropertyDashboardController {
     summary: 'List all properties (Property List page)',
     description:
       'Returns properties visible to the requesting user. ' +
-      'Admins see all; Property Managers see only their own; ' +
-      'Authorized Viewers see their assigned dashboards.',
+      'Admins see all; Property Managers see only their own.',
   })
-  @ApiResponse({
-    status: 200,
-    description: 'Array of property records with dashboard meta.',
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, example: 10 })
+  @ApiQuery({ name: 'search', required: false, example: 'Sunset Office' })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['ACTIVE', 'INACTIVE', 'ARCHIVED'],
   })
-  findAll(@Req() req: Request) {
-    // req.user injected by JwtAuthGuard
-    return this.service.findAll(req.user?.userId, req.user?.role);
+  @ApiQuery({
+    name: 'sortBy',
+    required: false,
+    enum: ['createdAt', 'name', 'updatedAt'],
+    example: 'createdAt',
+  })
+  @ApiQuery({
+    name: 'sortOrder',
+    required: false,
+    enum: ['asc', 'desc'],
+    example: 'desc',
+  })
+  @ApiQuery({ name: 'dateFrom', required: false, example: '2024-01-01' })
+  @ApiQuery({ name: 'dateTo', required: false, example: '2024-12-31' })
+  findAll(
+    @Req() req: Request,
+    @Query('page') page = '1',
+    @Query('limit') limit = '10',
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+    @Query('sortBy') sortBy = 'createdAt',
+    @Query('sortOrder') sortOrder = 'desc',
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    return this.service.findAll(req.user?.userId, req.user?.role, {
+      page: +page,
+      limit: +limit,
+      search,
+      status,
+      sortBy,
+      sortOrder: sortOrder as 'asc' | 'desc',
+      dateFrom,
+      dateTo,
+    });
   }
 
   @Post()

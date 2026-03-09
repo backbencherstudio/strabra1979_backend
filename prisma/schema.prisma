@@ -235,6 +235,7 @@ model PropertyDashboard {
   property    Property     @relation(fields: [propertyId], references: [id])
   inspections Inspection[]
   documents   Document[]
+  folders     InspectionFolder[]
 
   @@map("property_dashboards")
 }
@@ -292,6 +293,7 @@ model Inspection {
   dashboard  PropertyDashboard @relation(fields: [dashboardId], references: [id])
   inspector  User              @relation(fields: [inspectorId], references: [id])
   mediaFiles MediaFile[]
+  folderItems InspectionFolderItem[]
 
   @@map("inspections")
 }
@@ -314,6 +316,32 @@ model MediaFile {
   inspection Inspection @relation(fields: [inspectionId], references: [id])
 
   @@map("media_files")
+}
+
+model InspectionFolder {
+  id          String   @id @default(cuid())
+  dashboardId String
+  name        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  dashboard   PropertyDashboard        @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  items       InspectionFolderItem[]
+
+  @@map("inspection_folders")
+}
+
+// Join table — folder contains many inspections, inspection can be in many folders
+model InspectionFolderItem {
+  folderId     String
+  inspectionId String
+  addedAt      DateTime @default(now())
+
+  folder     InspectionFolder @relation(fields: [folderId],     references: [id], onDelete: Cascade)
+  inspection Inspection       @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+
+  @@id([folderId, inspectionId])
+  @@map("inspection_folder_items")
 }
 
 model PropertyAccess {
