@@ -12,7 +12,7 @@ export class UpdateNotificationPreferencesDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
-  notif_pm_new_property_dashboard_assigned?: boolean;   // ✅
+  notif_pm_new_property_dashboard_assigned?: boolean; // ✅
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -22,7 +22,7 @@ export class UpdateNotificationPreferencesDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
-  notif_pm_property_dashboard_update?: boolean;         // ✅
+  notif_pm_property_dashboard_update?: boolean; // ✅
 
   // ── Authorized Viewer ─────────────────────────────────────────────────
   @ApiPropertyOptional()
@@ -33,42 +33,42 @@ export class UpdateNotificationPreferencesDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
-  notif_av_access_request_update?: boolean;             // ✅
+  notif_av_access_request_update?: boolean; // ✅
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
-  notif_av_property_dashboard_update?: boolean;         // ✅
+  notif_av_property_dashboard_update?: boolean; // ✅
 
   // ── Operational Team ──────────────────────────────────────────────────
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
-  notif_ot_new_inspection_assigned?: boolean;           // ✅
+  notif_ot_new_inspection_assigned?: boolean; // ✅
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
-  notif_ot_due_inspection?: boolean;                    // ✅
+  notif_ot_due_inspection?: boolean; // ✅
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
-  notif_ot_incomplete_inspection_report?: boolean;      // ✅
+  notif_ot_incomplete_inspection_report?: boolean; // ✅
 
   // ── Admin ─────────────────────────────────────────────────────────────
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
-  notif_admin_new_user_registration?: boolean;          // ✅
+  notif_admin_new_user_registration?: boolean; // ✅
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
-  notif_admin_due_inspection?: boolean;                 // ✅
+  notif_admin_due_inspection?: boolean; // ✅
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
-  notif_admin_new_inspection_report_update?: boolean;   // ✅
+  notif_admin_new_inspection_report_update?: boolean; // ✅
 }

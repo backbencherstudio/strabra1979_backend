@@ -303,9 +303,7 @@ export class DashboardTemplateService {
     const sectionIndex = sections.findIndex((s) => s.order === dto.order);
 
     if (sectionIndex === -1) {
-      throw new NotFoundException(
-        `Section with order ${dto.order} not found`,
-      );
+      throw new NotFoundException(`Section with order ${dto.order} not found`);
     }
 
     // Deep-merge: only provided style fields are overwritten

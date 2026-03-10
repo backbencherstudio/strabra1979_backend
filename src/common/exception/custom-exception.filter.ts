@@ -38,7 +38,7 @@ export class CustomExceptionFilter implements ExceptionFilter {
       message =
         typeof exceptionResponse === 'string'
           ? exceptionResponse
-          : exceptionResponse.message ?? message;
+          : (exceptionResponse.message ?? message);
     }
 
     response.status(status).json({

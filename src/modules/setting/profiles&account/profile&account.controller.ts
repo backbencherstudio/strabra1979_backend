@@ -1,11 +1,4 @@
-import {
-  Controller,
-  Get,
-  Patch,
-  Body,
-  UseGuards,
-  Req,
-} from '@nestjs/common';
+import { Controller, Get, Patch, Body, UseGuards, Req } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -36,7 +29,7 @@ export class ProfileController {
   @ApiOperation({
     summary: 'Get current user profile',
     description:
-      'Returns the authenticated user\'s profile, including general info, timezone, and notification preferences.',
+      "Returns the authenticated user's profile, including general info, timezone, and notification preferences.",
   })
   @ApiOkResponse({
     description: 'Profile fetched successfully',
@@ -75,7 +68,7 @@ export class ProfileController {
   @ApiOperation({
     summary: 'Update general settings',
     description:
-      'Update the authenticated user\'s first name, last name, or email address. Changing email will reset email verification.',
+      "Update the authenticated user's first name, last name, or email address. Changing email will reset email verification.",
   })
   @ApiOkResponse({
     description: 'Profile updated successfully',
@@ -106,7 +99,7 @@ export class ProfileController {
   @ApiOperation({
     summary: 'Change password',
     description:
-      'Change the authenticated user\'s password. Requires the current password for verification. New password must be at least 8 characters and different from the current one.',
+      "Change the authenticated user's password. Requires the current password for verification. New password must be at least 8 characters and different from the current one.",
   })
   @ApiOkResponse({
     description: 'Password changed successfully',
@@ -123,10 +116,7 @@ export class ProfileController {
   })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
   @Patch('change-password')
-  async changePassword(
-    @Req() req: Request,
-    @Body() dto: ChangePasswordDto,
-  ) {
+  async changePassword(@Req() req: Request, @Body() dto: ChangePasswordDto) {
     return this.profileService.changePassword(req.user['userId'], dto);
   }
 
@@ -156,10 +146,7 @@ export class ProfileController {
   })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
   @Patch('timezone')
-  async updateTimezone(
-    @Req() req: Request,
-    @Body() dto: UpdateTimezoneDto,
-  ) {
+  async updateTimezone(@Req() req: Request, @Body() dto: UpdateTimezoneDto) {
     return this.profileService.updateTimezone(req.user['userId'], dto);
   }
 

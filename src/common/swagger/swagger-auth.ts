@@ -14,7 +14,7 @@ export function buildSwaggerOptions() {
   const builder = new DocumentBuilder()
     .setTitle(`${process.env.APP_NAME} API`)
     .setVersion('1.0')
-    .addServer(appConfig().app.url || 'http://localhost:3000')
+    .addServer(appConfig().app.url || 'http://localhost:3000');
 
   Object.values(SWAGGER_AUTH).forEach((name) => {
     builder.addBearerAuth(

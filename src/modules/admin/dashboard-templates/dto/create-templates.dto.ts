@@ -29,7 +29,7 @@ export enum SectionType {
 }
 
 export enum MediaFieldType {
-  MEDIA = 'media',       // Photos / videos uploaded directly
+  MEDIA = 'media', // Photos / videos uploaded directly
   EMBEDDED = 'embedded', // 3D tours, maps, external links
 }
 
@@ -165,7 +165,8 @@ export class MediaFieldConfigDto {
   @ApiProperty({
     enum: MediaFieldType,
     example: MediaFieldType.MEDIA,
-    description: 'media = uploaded photos/videos | embedded = 3D tours, maps, external links',
+    description:
+      'media = uploaded photos/videos | embedded = 3D tours, maps, external links',
   })
   @IsEnum(MediaFieldType)
   mediaType: MediaFieldType;
