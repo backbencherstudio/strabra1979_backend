@@ -79,9 +79,11 @@ model User {
   managedProperties Property[]   @relation("PropertyManager")
   inspections       Inspection[]
 
-  propertyAccesses PropertyAccess[]        @relation("PropertyAccesses")
-  accessRequests   PropertyAccessRequest[] @relation("AccessRequests")
-  reviewedRequests PropertyAccessRequest[] @relation("ReviewedRequests")
+  propertyAccesses    PropertyAccess[]        @relation("PropertyAccesses")
+  accessRequests      PropertyAccessRequest[] @relation("AccessRequests")
+  reviewedRequests    PropertyAccessRequest[] @relation("ReviewedRequests")
+  assignedInspections ScheduledInspection[]   @relation("AssignedInspections")
+  createdSchedules    ScheduledInspection[]   @relation("CreatedSchedules")
 
   @@map("users")
 }
@@ -232,10 +234,11 @@ model PropertyDashboard {
   updatedAt DateTime @updatedAt
 
   // Relations
-  property    Property     @relation(fields: [propertyId], references: [id])
-  inspections Inspection[]
-  documents   Document[]
-  folders     InspectionFolder[]
+  property             Property              @relation(fields: [propertyId], references: [id])
+  inspections          Inspection[]
+  documents            Document[]
+  folders              InspectionFolder[]
+  scheduledInspections ScheduledInspection[]
 
   @@map("property_dashboards")
 }
@@ -290,10 +293,11 @@ model Inspection {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  dashboard  PropertyDashboard @relation(fields: [dashboardId], references: [id])
-  inspector  User              @relation(fields: [inspectorId], references: [id])
-  mediaFiles MediaFile[]
-  folderItems InspectionFolderItem[]
+  dashboard           PropertyDashboard      @relation(fields: [dashboardId], references: [id])
+  inspector           User                   @relation(fields: [inspectorId], references: [id])
+  mediaFiles          MediaFile[]
+  folderItems         InspectionFolderItem[]
+  scheduledInspection ScheduledInspection?
 
   @@map("inspections")
 }
@@ -318,15 +322,47 @@ model MediaFile {
   @@map("media_files")
 }
 
+enum ScheduledInspectionStatus {
+  ASSIGNED // scheduled, not yet started
+  IN_PROGRESS // operational team started
+  COMPLETE // inspection submitted
+  DUE // past scheduledAt, not yet started
+}
+
+model ScheduledInspection {
+  id          String                    @id @default(cuid())
+  dashboardId String
+  assignedTo  String // operational user id
+  scheduledAt DateTime // date + time from the modal
+  status      ScheduledInspectionStatus @default(ASSIGNED)
+
+  // Filled when operational team submits
+  inspectionId String? @unique // links to the Inspection record once submitted
+
+  createdBy String // admin who scheduled
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  dashboard PropertyDashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  assignee         User              @relation("AssignedInspections", fields: [assignedTo], references: [id])
+  creator          User              @relation("CreatedSchedules", fields: [createdBy], references: [id])
+  inspection       Inspection?       @relation(fields: [inspectionId], references: [id])
+
+  @@map("scheduled_inspections")
+}
+
 model InspectionFolder {
   id          String   @id @default(cuid())
   dashboardId String
+  parentId    String?
   name        String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  dashboard   PropertyDashboard        @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
-  items       InspectionFolderItem[]
+  dashboard PropertyDashboard      @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  parent    InspectionFolder?      @relation("FolderChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children  InspectionFolder[]     @relation("FolderChildren")
+  items     InspectionFolderItem[]
 
   @@map("inspection_folders")
 }
@@ -337,7 +373,7 @@ model InspectionFolderItem {
   inspectionId String
   addedAt      DateTime @default(now())
 
-  folder     InspectionFolder @relation(fields: [folderId],     references: [id], onDelete: Cascade)
+  folder     InspectionFolder @relation(fields: [folderId], references: [id], onDelete: Cascade)
   inspection Inspection       @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
 
   @@id([folderId, inspectionId])

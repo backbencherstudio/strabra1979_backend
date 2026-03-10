@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   CreatePropertyDto,
@@ -22,10 +23,26 @@ export class PropertyDashboardService {
     private readonly notifications: NotificationService,
   ) {}
 
-  // ─── 1. CREATE PROPERTY + DASHBOARD ────────────────────────────────────────
+  // ─── PRIVATE HELPER — resolve dashboard + property in one shot ────────────
+
+  private async _assertDashboardExists(dashboardId: string) {
+    const dashboard = await this.prisma.propertyDashboard.findUnique({
+      where: { id: dashboardId },
+      include: { property: true },
+    });
+    if (!dashboard)
+      throw new NotFoundException(`Dashboard "${dashboardId}" not found.`);
+    return {
+      dashboard,
+      propertyId: dashboard.propertyId,
+      property: dashboard.property,
+    };
+  }
+
+  // ─── 1. CREATE PROPERTY + DASHBOARD ──────────────────────────────────────
 
   async createProperty(dto: CreatePropertyDto, adminId: string) {
-    let template = dto.templateId
+    const template = dto.templateId
       ? await this.prisma.dashboardTemplate.findFirst({
           where: { id: dto.templateId, status: 'ACTIVE' },
         })
@@ -34,11 +51,10 @@ export class PropertyDashboardService {
           orderBy: { createdAt: 'desc' },
         });
 
-    if (!template) {
+    if (!template)
       throw new BadRequestException(
         'No active dashboard template found. Please create a template first.',
       );
-    }
 
     let pmUser = null;
     if (dto.propertyManagerId) {
@@ -49,11 +65,10 @@ export class PropertyDashboardService {
           isDeleted: false,
         },
       });
-      if (!pmUser) {
+      if (!pmUser)
         throw new NotFoundException(
           `Property Manager with id "${dto.propertyManagerId}" not found.`,
         );
-      }
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -66,15 +81,15 @@ export class PropertyDashboardService {
             ? new Date(dto.nextInspectionDate)
             : null,
           propertyManagerId: dto.propertyManagerId ?? null,
-          activeTemplateId: dto.templateId ?? null,
+          activeTemplateId: template.id,
         },
       });
 
       const dashboard = await tx.propertyDashboard.create({
         data: {
           propertyId: property.id,
-          templateId: dto.templateId ?? null,
-          templateSnapshot: dto.templateId ?? null,
+          templateId: template.id,
+          templateSnapshot: template.sections,
         },
       });
 
@@ -89,8 +104,7 @@ export class PropertyDashboardService {
       return { property, dashboard };
     });
 
-    // ── Notify PM if assigned at creation time ─────────────────────────────
-    if (pmUser && result.dashboard) {
+    if (pmUser) {
       await this.notifications.dashboardAssigned({
         propertyManagerId: pmUser.id,
         assignedById: adminId,
@@ -107,7 +121,7 @@ export class PropertyDashboardService {
     };
   }
 
-  // ─── 2. LIST PROPERTIES ─────────────────────────────────────────────────────
+  // ─── 2. LIST PROPERTIES ───────────────────────────────────────────────────
 
   async findAll(
     requestingUserId: string,
@@ -136,7 +150,6 @@ export class PropertyDashboardService {
 
     const skip = (page - 1) * limit;
 
-    // ── Base where clause ────────────────────────────────────────────────────
     const where: any = {
       ...(status ? { status } : { status: { not: 'ARCHIVED' } }),
       ...(search && {
@@ -145,17 +158,14 @@ export class PropertyDashboardService {
           { address: { contains: search, mode: 'insensitive' } },
         ],
       }),
-      ...(dateFrom || dateTo
-        ? {
-            createdAt: {
-              ...(dateFrom && { gte: new Date(dateFrom) }),
-              ...(dateTo && { lte: new Date(dateTo) }),
-            },
-          }
-        : {}),
+      ...((dateFrom || dateTo) && {
+        createdAt: {
+          ...(dateFrom && { gte: new Date(dateFrom) }),
+          ...(dateTo && { lte: new Date(dateTo) }),
+        },
+      }),
     };
 
-    // ── Role-based scope ─────────────────────────────────────────────────────
     if (requestingUserRole === Role.PROPERTY_MANAGER) {
       where.propertyManagerId = requestingUserId;
     }
@@ -175,8 +185,22 @@ export class PropertyDashboardService {
       },
     };
 
-    // ── Admin ────────────────────────────────────────────────────────────────
-    if (requestingUserRole === Role.ADMIN) {
+    const mapProperties = (properties: any[]) =>
+      properties.map((p) => ({
+        ...p,
+        dashboard: p.dashboard
+          ? {
+              ...p.dashboard,
+              latestInspection: p.dashboard.inspections[0] ?? null,
+              inspections: undefined,
+            }
+          : null,
+      }));
+
+    if (
+      requestingUserRole === Role.ADMIN ||
+      requestingUserRole === Role.PROPERTY_MANAGER
+    ) {
       const [properties, total] = await this.prisma.$transaction([
         this.prisma.property.findMany({
           where,
@@ -198,60 +222,7 @@ export class PropertyDashboardService {
       return {
         success: true,
         message: 'Properties retrieved successfully',
-        data: properties.map((p) => ({
-          ...p,
-          dashboard: p.dashboard
-            ? {
-                ...p.dashboard,
-                latestInspection: p.dashboard.inspections[0] ?? null,
-                inspections: undefined,
-              }
-            : null,
-        })),
-        meta: {
-          total,
-          page,
-          limit,
-          total_pages,
-          has_next_page: page < total_pages,
-          has_prev_page: page > 1,
-        },
-      };
-    }
-
-    // ── Property Manager ─────────────────────────────────────────────────────
-    if (requestingUserRole === Role.PROPERTY_MANAGER) {
-      const [properties, total] = await this.prisma.$transaction([
-        this.prisma.property.findMany({
-          where,
-          skip,
-          take: limit,
-          orderBy,
-          include: {
-            propertyManager: {
-              select: { id: true, name: true, email: true, avatar: true },
-            },
-            dashboard: dashboardSelect,
-          },
-        }),
-        this.prisma.property.count({ where }),
-      ]);
-
-      const total_pages = Math.ceil(total / limit);
-
-      return {
-        success: true,
-        message: 'Properties retrieved successfully',
-        data: properties.map((p) => ({
-          ...p,
-          dashboard: p.dashboard
-            ? {
-                ...p.dashboard,
-                latestInspection: p.dashboard.inspections[0] ?? null,
-                inspections: undefined,
-              }
-            : null,
-        })),
+        data: mapProperties(properties),
         meta: {
           total,
           page,
@@ -270,24 +241,26 @@ export class PropertyDashboardService {
     };
   }
 
-  // ─── GET SINGLE PROPERTY + DASHBOARD ──────────────────────────────────────────
+  // ─── 3. GET SINGLE DASHBOARD — role-aware ─────────────────────────────────
 
-  async findOne(propertyId: string) {
-    // ── Resolve dashboardId from propertyId ───────────────────────────────────
-    const dashboard = await this.prisma.propertyDashboard.findUnique({
-      where: { propertyId },
-      select: { id: true },
-    });
+  async findOne(dashboardId: string, userId: string, userRole: string) {
+    const { propertyId } = await this._assertDashboardExists(dashboardId);
 
-    if (!dashboard)
-      throw new NotFoundException(
-        `No dashboard found for property "${propertyId}".`,
-      );
+    // Authorized Viewers must have explicit access
+    if (userRole === Role.AUTHORIZED_VIEWER) {
+      const access = await this.prisma.propertyAccess.findFirst({
+        where: { propertyId, userId, revokedAt: null },
+      });
+      if (!access)
+        throw new ForbiddenException(
+          `You do not have access to this dashboard.`,
+        );
+    }
 
-    return this.findOneByDashboard(dashboard.id);
+    return this.findOneByDashboard(dashboardId);
   }
 
-  // ─── GET BY DASHBOARD ID (primary — used by all downstream routes) ─────────
+  // ─── 3b. GET BY DASHBOARD ID (internal — used by findOne + other modules) ─
 
   async findOneByDashboard(dashboardId: string) {
     const dashboard = await this.prisma.propertyDashboard.findUnique({
@@ -312,9 +285,7 @@ export class PropertyDashboardService {
         },
         folders: {
           include: {
-            items: {
-              select: { inspectionId: true },
-            },
+            items: { select: { inspectionId: true } },
           },
         },
       },
@@ -330,14 +301,14 @@ export class PropertyDashboardService {
     };
   }
 
-  // ─── 4. UPDATE PROPERTY ──────────────────────────────────────────────────────
+  // ─── 4. UPDATE PROPERTY DETAILS ───────────────────────────────────────────
 
   async updateProperty(
-    propertyId: string,
+    dashboardId: string,
     dto: UpdatePropertyDto,
     adminId: string,
   ) {
-    await this._assertPropertyExists(propertyId);
+    const { propertyId } = await this._assertDashboardExists(dashboardId);
 
     const updated = await this.prisma.property.update({
       where: { id: propertyId },
@@ -363,24 +334,18 @@ export class PropertyDashboardService {
       },
     });
 
-    // ── Notify all users with access to this property ──────────────────────
     const accesses = await this.prisma.propertyAccess.findMany({
       where: { propertyId, revokedAt: null },
       select: { userId: true },
     });
 
-    const dashboard = await this.prisma.propertyDashboard.findUnique({
-      where: { propertyId },
-      select: { id: true },
-    });
-
-    if (accesses.length && dashboard) {
+    if (accesses.length) {
       await this.notifications.dashboardUpdated({
         userIds: accesses.map((a) => a.userId),
         updatedById: adminId,
         propertyId,
         propertyName: updated.name,
-        dashboardId: dashboard.id,
+        dashboardId,
         changeNote: 'Property details have been updated',
       });
     }
@@ -392,16 +357,39 @@ export class PropertyDashboardService {
     };
   }
 
-  // ─── 5. SCHEDULE AN INSPECTION ───────────────────────────────────────────────
+  // ─── 5. SCHEDULE AN INSPECTION ────────────────────────────────────────────
 
   async scheduleInspection(
-    propertyId: string,
+    dashboardId: string,
     dto: ScheduleInspectionDto,
     adminId: string,
   ) {
-    await this._assertPropertyExists(propertyId);
+    const { propertyId, property } =
+      await this._assertDashboardExists(dashboardId);
 
-    const updated = await this.prisma.property.update({
+    // ── Validate assignee is OPERATIONAL role ──────────────────────────────
+    const assignee = await this.prisma.user.findFirst({
+      where: { id: dto.assignedTo, role: Role.OPERATIONAL, isDeleted: false },
+    });
+    if (!assignee)
+      throw new NotFoundException('Operational team member not found.');
+
+    if (new Date(dto.scheduledAt) <= new Date())
+      throw new BadRequestException('scheduledAt must be a future date/time.');
+
+    // ── Create scheduled inspection ────────────────────────────────────────
+    const scheduled = await this.prisma.scheduledInspection.create({
+      data: {
+        dashboardId,
+        assignedTo: dto.assignedTo,
+        scheduledAt: new Date(dto.scheduledAt),
+        createdBy: adminId,
+        status: 'ASSIGNED',
+      },
+    });
+
+    // ── Also update property.nextInspectionDate for the card display ───────
+    await this.prisma.property.update({
       where: { id: propertyId },
       data: { nextInspectionDate: new Date(dto.scheduledAt) },
     });
@@ -410,45 +398,34 @@ export class PropertyDashboardService {
       data: {
         category: ActivityCategory.PROPERTY_DASHBOARD_UPDATE,
         actor_role: Role.ADMIN,
-        message: `Inspection scheduled for ${updated.name} on ${new Date(dto.scheduledAt).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`,
+        message: `Inspection scheduled for ${property.name} on ${new Date(dto.scheduledAt).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`,
       },
     });
 
     return {
       success: true,
       message: 'Inspection scheduled successfully',
-      data: updated,
+      data: scheduled,
     };
   }
 
-  // ─── 6. ASSIGN / CHANGE PROPERTY MANAGER ────────────────────────────────────
+  // ─── 6. ASSIGN USER ───────────────────────────────────────────────────────
 
   async assignPropertyUser(
-    propertyId: string,
+    dashboardId: string,
     dto: AssignPropertyUserDto,
     adminId: string,
   ) {
-    await this._assertPropertyExists(propertyId);
+    const { propertyId, property } =
+      await this._assertDashboardExists(dashboardId);
 
     const user = await this.prisma.user.findFirst({
       where: { id: dto.userId, isDeleted: false },
     });
     if (!user) throw new NotFoundException('User not found.');
 
-    const property = await this.prisma.property.findUnique({
-      where: { id: propertyId },
-      select: { name: true },
-    });
-    if (!property) throw new NotFoundException('Property not found.');
-
-    if (dto.expiresAt && new Date(dto.expiresAt) <= new Date()) {
+    if (dto.expiresAt && new Date(dto.expiresAt) <= new Date())
       throw new BadRequestException('expiresAt must be a future date.');
-    }
-
-    const dashboard = await this.prisma.propertyDashboard.findUnique({
-      where: { propertyId },
-      select: { id: true },
-    });
 
     // ── Property Manager ───────────────────────────────────────────────────
     if (user.role === Role.PROPERTY_MANAGER) {
@@ -465,16 +442,13 @@ export class PropertyDashboardService {
         },
       });
 
-      // ── Notify the PM ────────────────────────────────────────────────────
-      if (dashboard) {
-        await this.notifications.dashboardAssigned({
-          propertyManagerId: user.id,
-          assignedById: adminId,
-          propertyId,
-          propertyName: updated.name,
-          dashboardId: dashboard.id,
-        });
-      }
+      await this.notifications.dashboardAssigned({
+        propertyManagerId: user.id,
+        assignedById: adminId,
+        propertyId,
+        propertyName: updated.name,
+        dashboardId,
+      });
 
       return {
         success: true,
@@ -483,7 +457,7 @@ export class PropertyDashboardService {
       };
     }
 
-    // ── Other roles (Authorized Viewer, Operational, etc.) ─────────────────
+    // ── Other roles (AV, Operational etc.) ────────────────────────────────
     const access = await this.prisma.propertyAccess.upsert({
       where: { propertyId_userId: { propertyId, userId: dto.userId } },
       create: {
@@ -513,22 +487,19 @@ export class PropertyDashboardService {
       },
     });
 
-    // ── Notify the user ──────────────────────────────────────────────────────
     const admin = await this.prisma.user.findUnique({
       where: { id: adminId },
       select: { name: true },
     });
 
-    if (dashboard) {
-      await this.notifications.dashboardShared({
-        userId: user.id,
-        sharedById: adminId,
-        sharerName: admin?.name ?? 'Admin',
-        propertyId,
-        propertyName: property.name,
-        dashboardId: dashboard.id,
-      });
-    }
+    await this.notifications.dashboardShared({
+      userId: user.id,
+      sharedById: adminId,
+      sharerName: admin?.name ?? 'Admin',
+      propertyId,
+      propertyName: property.name,
+      dashboardId,
+    });
 
     return {
       success: true,
@@ -539,10 +510,10 @@ export class PropertyDashboardService {
     };
   }
 
-  // ─── 7. GET PROPERTY ACCESS LIST ────────────────────────────────────────────
+  // ─── 7. GET ACCESS LIST ───────────────────────────────────────────────────
 
-  async getPropertyAccess(propertyId: string) {
-    await this._assertPropertyExists(propertyId);
+  async getPropertyAccess(dashboardId: string) {
+    const { propertyId } = await this._assertDashboardExists(dashboardId);
 
     const [property, accesses] = await Promise.all([
       this.prisma.property.findUnique({
@@ -596,14 +567,14 @@ export class PropertyDashboardService {
     };
   }
 
-  // ─── 8. SET ACCESS EXPIRATION DATE ──────────────────────────────────────────
+  // ─── 8. SET ACCESS EXPIRATION ─────────────────────────────────────────────
 
   async setAccessExpiration(
-    propertyId: string,
+    dashboardId: string,
     dto: SetAccessExpirationDto,
     adminId: string,
   ) {
-    await this._assertPropertyExists(propertyId);
+    await this._assertDashboardExists(dashboardId);
 
     const user = await this.prisma.user.findFirst({
       where: { id: dto.userId, isDeleted: false },
@@ -628,16 +599,5 @@ export class PropertyDashboardService {
       message: 'Access expiration updated.',
       user: updatedUser,
     };
-  }
-
-  // ─── PRIVATE HELPERS ─────────────────────────────────────────────────────────
-
-  private async _assertPropertyExists(propertyId: string) {
-    const exists = await this.prisma.property.findUnique({
-      where: { id: propertyId },
-    });
-    if (!exists)
-      throw new NotFoundException(`Property "${propertyId}" not found.`);
-    return exists;
   }
 }

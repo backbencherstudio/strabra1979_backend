@@ -34,14 +34,15 @@ import { SWAGGER_AUTH } from 'src/common/swagger/swagger-auth';
 
 @ApiTags('Property Dashboard')
 @ApiBearerAuth(SWAGGER_AUTH.admin)
-@ApiBearerAuth(SWAGGER_AUTH.property_manager)
-@ApiBearerAuth(SWAGGER_AUTH.authorized_viewer)
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('properties')
 export class PropertyDashboardController {
   constructor(private readonly service: PropertyDashboardService) {}
 
+  // ─── LIST ALL PROPERTIES ──────────────────────────────────────────────────
+
   @Get()
+  @Roles(Role.ADMIN, Role.PROPERTY_MANAGER)
   @ApiOperation({
     summary: 'List all properties (Property List page)',
     description:
@@ -93,15 +94,15 @@ export class PropertyDashboardController {
     });
   }
 
+  // ─── CREATE PROPERTY + DASHBOARD ─────────────────────────────────────────
+
   @Post()
   @Roles(Role.ADMIN)
   @ApiOperation({
-    summary: 'Create a new Property Dashboard',
+    summary: 'Create a new Property + Dashboard',
     description:
       'Creates both the Property record and its linked PropertyDashboard in a single ' +
-      'transaction. A frozen snapshot of the template sections is stored on the dashboard ' +
-      'so future template edits never break existing dashboards. ' +
-      'Triggers a notification to the assigned Property Manager.',
+      'transaction. A frozen snapshot of the template sections is stored on the dashboard.',
   })
   @ApiResponse({
     status: 400,
@@ -112,123 +113,139 @@ export class PropertyDashboardController {
     return this.service.createProperty(dto, req.user?.userId);
   }
 
-  @Get(':propertyId')
+  // ─── GET SINGLE DASHBOARD ─────────────────────────────────────────────────
+
+  @Get('dashboard/:dashboardId')
+  @Roles(Role.ADMIN, Role.PROPERTY_MANAGER, Role.AUTHORIZED_VIEWER)
   @ApiOperation({
-    summary: 'Get a single property with its full dashboard data',
+    summary: 'Get full dashboard by dashboard ID',
     description:
-      'Returns the property record, its latest inspection (for the Roof Health Snapshot), ' +
-      'all non-archived documents, and the template snapshot used to render the dashboard sections.',
+      'Returns property info, latest inspection, documents, folders. ' +
+      'Authorized Viewers must have explicit access.',
   })
   @ApiParam({
-    name: 'propertyId',
-    description: 'CUID of the property',
-    example: 'clxyz001',
+    name: 'dashboardId',
+    description: 'CUID of the PropertyDashboard',
   })
-  @ApiResponse({ status: 200, description: 'Property with dashboard detail.' })
-  @ApiResponse({ status: 404, description: 'Property not found.' })
-  findOne(@Param('propertyId') propertyId: string) {
-    return this.service.findOne(propertyId);
+  @ApiResponse({ status: 200, description: 'Dashboard with full detail.' })
+  @ApiResponse({
+    status: 404,
+    description: 'Dashboard not found or no access.',
+  })
+  findOne(@Param('dashboardId') dashboardId: string, @Req() req: Request) {
+    return this.service.findOne(dashboardId, req.user?.userId, req.user?.role);
   }
 
-  @Patch(':propertyId')
+  // ─── UPDATE PROPERTY DETAILS ──────────────────────────────────────────────
+
+  @Patch('dashboard/:dashboardId')
   @Roles(Role.ADMIN)
   @ApiOperation({
     summary: 'Update property details',
     description:
       'Partial update for name, address, type, or next inspection date.',
   })
-  @ApiParam({ name: 'propertyId', description: 'CUID of the property' })
+  @ApiParam({
+    name: 'dashboardId',
+    description: 'CUID of the PropertyDashboard',
+  })
   @ApiResponse({ status: 200, description: 'Updated property record.' })
-  @ApiResponse({ status: 404, description: 'Property not found.' })
+  @ApiResponse({ status: 404, description: 'Dashboard not found.' })
   updateProperty(
-    @Param('propertyId') propertyId: string,
+    @Param('dashboardId') dashboardId: string,
     @Body() dto: UpdatePropertyDto,
     @Req() req: Request,
   ) {
-    return this.service.updateProperty(propertyId, dto, req.user?.userId);
+    return this.service.updateProperty(dashboardId, dto, req.user?.userId);
   }
 
-  // ─── SCHEDULE INSPECTION ─────────────────────────────────────────────────────
+  // ─── SCHEDULE INSPECTION ──────────────────────────────────────────────────
 
-  @Post(':propertyId/schedule-inspection')
+  @Post('dashboard/:dashboardId/schedule-inspection')
   @Roles(Role.ADMIN, Role.PROPERTY_MANAGER)
   @ApiOperation({
     summary: 'Schedule (or reschedule) an inspection',
     description:
       'Sets the Next Inspection date on the property. ' +
-      'Reflects immediately on the property card and in dashboard header. ' +
       'Corresponds to the "Schedule an Inspection" modal on the Property List page.',
   })
   @ApiParam({
-    name: 'propertyId',
-    description: 'CUID of the property',
-    example: 'clxyz001',
+    name: 'dashboardId',
+    description: 'CUID of the PropertyDashboard',
   })
   @ApiResponse({ status: 201, description: 'Inspection scheduled.' })
-  @ApiResponse({ status: 404, description: 'Property not found.' })
+  @ApiResponse({ status: 404, description: 'Dashboard not found.' })
   scheduleInspection(
-    @Param('propertyId') propertyId: string,
+    @Param('dashboardId') dashboardId: string,
     @Body() dto: ScheduleInspectionDto,
     @Req() req: Request,
   ) {
-    return this.service.scheduleInspection(propertyId, dto, req.user?.userId);
+    return this.service.scheduleInspection(dashboardId, dto, req.user?.userId);
   }
 
-  // ─── ASSIGN PROPERTY USER ──────────────────────────────────────────────────
+  // ─── ASSIGN USER TO PROPERTY ──────────────────────────────────────────────
 
-  @Post(':propertyId/assign-user')
+  @Post('dashboard/:dashboardId/assign-user')
   @Roles(Role.ADMIN)
   @ApiOperation({
-    summary: 'Assign or change the Property Manager for a property',
+    summary: 'Assign Property Manager or grant access to a user',
     description:
-      'Corresponds to the "Assign a Property Manager" action in the property card menu. ' +
-      'Only PROPERTY_MANAGER role users are selectable.',
+      'If userId belongs to a PROPERTY_MANAGER, they become the property manager. ' +
+      'All other roles get a PropertyAccess record (view access).',
   })
-  @ApiParam({ name: 'propertyId', description: 'CUID of the property' })
-  @ApiResponse({ status: 201, description: 'Property manager assigned.' })
-  @ApiResponse({
-    status: 404,
-    description: 'Property or Property Manager not found.',
+  @ApiParam({
+    name: 'dashboardId',
+    description: 'CUID of the PropertyDashboard',
   })
-  assignManager(
-    @Param('propertyId') propertyId: string,
+  @ApiResponse({ status: 201, description: 'User assigned or access granted.' })
+  @ApiResponse({ status: 404, description: 'Dashboard or User not found.' })
+  assignUser(
+    @Param('dashboardId') dashboardId: string,
     @Body() dto: AssignPropertyUserDto,
     @Req() req: Request,
   ) {
-    return this.service.assignPropertyUser(propertyId, dto, req.user?.userId);
+    return this.service.assignPropertyUser(dashboardId, dto, req.user?.userId);
   }
 
-  // ─── PROPERTY ACCESS MANAGEMENT ──────────────────────────────────────────────
+  // ─── GET ACCESS LIST ──────────────────────────────────────────────────────
 
-  @Get(':propertyId/access')
+  @Get('dashboard/:dashboardId/access')
   @Roles(Role.ADMIN)
   @ApiOperation({
     summary: 'Get the access list for a property dashboard',
     description:
-      'Returns all users who have access to this property dashboard. ' +
-      'Corresponds to the "Property Dashboard Access" modal on the Property List page.',
+      'Returns all users who currently have access to this dashboard. ' +
+      'Corresponds to the "Property Dashboard Access" modal.',
   })
-  @ApiParam({ name: 'propertyId', description: 'CUID of the property' })
-  getAccess(@Param('propertyId') propertyId: string) {
-    return this.service.getPropertyAccess(propertyId);
+  @ApiParam({
+    name: 'dashboardId',
+    description: 'CUID of the PropertyDashboard',
+  })
+  getAccess(@Param('dashboardId') dashboardId: string) {
+    return this.service.getPropertyAccess(dashboardId);
   }
 
-  @Patch(':propertyId/access/expiration')
+  // ─── SET ACCESS EXPIRATION ────────────────────────────────────────────────
+
+  @Patch('dashboard/:dashboardId/access/expiration')
   @Roles(Role.ADMIN)
   @ApiOperation({
-    summary: 'Set or update an access expiration date for a user',
+    summary: 'Set or update access expiration date for a user',
     description:
       "Updates when a specific user's access to this property expires. " +
       'Corresponds to the "Set access expiration date" option in the access list context menu.',
   })
-  @ApiParam({ name: 'propertyId', description: 'CUID of the property' })
+  @ApiParam({
+    name: 'dashboardId',
+    description: 'CUID of the PropertyDashboard',
+  })
   @ApiResponse({ status: 200, description: 'Expiration date updated.' })
-  @ApiResponse({ status: 404, description: 'Property or User not found.' })
+  @ApiResponse({ status: 404, description: 'Dashboard or User not found.' })
   setExpiration(
-    @Param('propertyId') propertyId: string,
+    @Param('dashboardId') dashboardId: string,
     @Body() dto: SetAccessExpirationDto,
     @Req() req: Request,
   ) {
-    return this.service.setAccessExpiration(propertyId, dto, req.user?.userId);
+    return this.service.setAccessExpiration(dashboardId, dto, req.user?.userId);
   }
 }
