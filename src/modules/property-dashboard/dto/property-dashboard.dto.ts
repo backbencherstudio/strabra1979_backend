@@ -71,12 +71,16 @@ export class CreatePropertyDto {
 // ─── Schedule Inspection (separate action from property card)
 
 export class ScheduleInspectionDto {
-  @ApiProperty({
-    description: 'ISO date-time string for the scheduled inspection',
-    example: '2026-02-08T10:00:00.000Z',
-  })
+  @ApiProperty({ example: '2026-10-01T10:00:00Z' })
   @IsDateString()
   scheduledAt: string;
+
+  @ApiProperty({
+    description: 'Operational team user ID to assign',
+    example: 'cmm4g1m4q0003pwu8c4ghgjzi',
+  })
+  @IsString()
+  assignedTo: string;
 }
 
 // ─── Assign Property Manager (separate action from property card)

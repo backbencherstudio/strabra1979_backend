@@ -22,34 +22,97 @@ export class PropertyAccessService {
     private readonly notifications: NotificationService,
   ) {}
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // STEP 1 — Authorized Viewer clicks "Request Access"
-  // ─────────────────────────────────────────────────────────────────────────
+  // ─── PRIVATE HELPERS ──────────────────────────────────────────────────────
+
+  private async _assertDashboardExists(dashboardId: string) {
+    const dashboard = await this.prisma.propertyDashboard.findUnique({
+      where: { id: dashboardId },
+      include: { property: true },
+    });
+    if (!dashboard)
+      throw new NotFoundException(`Dashboard "${dashboardId}" not found.`);
+    return {
+      dashboard,
+      propertyId: dashboard.propertyId,
+      property: dashboard.property,
+    };
+  }
+
+  private async _assertCanReview(reviewerId: string, propertyId: string) {
+    const reviewer = await this.prisma.user.findUnique({
+      where: { id: reviewerId },
+    });
+    if (!reviewer) throw new NotFoundException('Reviewer not found.');
+    if (reviewer.role === 'ADMIN') return;
+
+    const property = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+    });
+    if (property?.propertyManagerId !== reviewerId) {
+      throw new ForbiddenException(
+        'You are not the Property Manager for this dashboard.',
+      );
+    }
+  }
+
+  private async _getAnyAdminId(): Promise<string | null> {
+    const admin = await this.prisma.user.findFirst({
+      where: { role: 'ADMIN', status: 'ACTIVE', isDeleted: false },
+      select: { id: true },
+    });
+    return admin?.id ?? null;
+  }
+
+  // ─── CHECK ACCESS ─────────────────────────────────────────────────────────
+
+  async checkDashboardAccess(
+    dashboardId: string,
+    userId: string,
+    userRole: string,
+  ) {
+    const { propertyId, property } =
+      await this._assertDashboardExists(dashboardId);
+
+    if (userRole === 'ADMIN') return { hasAccess: true };
+    if (property.propertyManagerId === userId) return { hasAccess: true };
+
+    const access = await this.prisma.propertyAccess.findUnique({
+      where: { propertyId_userId: { propertyId, userId } },
+    });
+
+    if (!access) return { hasAccess: false, reason: 'NO_ACCESS' };
+    if (access.revokedAt) return { hasAccess: false, reason: 'REVOKED' };
+    if (access.expiresAt && access.expiresAt < new Date())
+      return { hasAccess: false, reason: 'EXPIRED' };
+
+    return { hasAccess: true };
+  }
+
+  // ─── REQUEST ACCESS ───────────────────────────────────────────────────────
 
   async requestAccess(
-    propertyId: string,
+    dashboardId: string,
     requesterId: string,
     dto: RequestPropertyAccessDto,
   ) {
-    const property = await this._assertPropertyExists(propertyId);
+    const { propertyId, property } =
+      await this._assertDashboardExists(dashboardId);
 
     const existingAccess = await this.prisma.propertyAccess.findUnique({
       where: { propertyId_userId: { propertyId, userId: requesterId } },
     });
-    if (existingAccess && !existingAccess.revokedAt) {
+    if (existingAccess && !existingAccess.revokedAt)
       throw new ConflictException(
         'You already have access to this property dashboard.',
       );
-    }
 
     const existingRequest = await this.prisma.propertyAccessRequest.findUnique({
       where: { propertyId_requesterId: { propertyId, requesterId } },
     });
-    if (existingRequest?.status === 'PENDING') {
+    if (existingRequest?.status === 'PENDING')
       throw new ConflictException(
         'You already have a pending access request for this property.',
       );
-    }
 
     const requester = await this.prisma.user.findUnique({
       where: { id: requesterId },
@@ -67,10 +130,8 @@ export class PropertyAccessService {
       },
     });
 
-    // ── Notify PM (or admin fallback) ─────────────────────────────────────
     const recipientId =
       property.propertyManagerId ?? (await this._getAnyAdminId());
-
     if (recipientId) {
       await this.notifications.accessRequested({
         propertyManagerId: recipientId,
@@ -86,16 +147,27 @@ export class PropertyAccessService {
     return accessRequest;
   }
 
+  // ─── GET ALL ACCESS REQUESTS ──────────────────────────────────────────────
+
   async getAllAccessRequests(filters: {
-    propertyId?: string;
+    dashboardId?: string;
     status?: AccessRequestStatus;
     requesterId?: string;
   }) {
+    // Resolve propertyId from dashboardId if provided
+    let propertyId: string | undefined;
+    if (filters.dashboardId) {
+      const { propertyId: pid } = await this._assertDashboardExists(
+        filters.dashboardId,
+      );
+      propertyId = pid;
+    }
+
     const requests = await this.prisma.propertyAccessRequest.findMany({
       where: {
-        ...(filters.propertyId ? { propertyId: filters.propertyId } : {}),
-        ...(filters.status ? { status: filters.status } : {}),
-        ...(filters.requesterId ? { requesterId: filters.requesterId } : {}),
+        ...(propertyId && { propertyId }),
+        ...(filters.status && { status: filters.status }),
+        ...(filters.requesterId && { requesterId: filters.requesterId }),
       },
       include: {
         property: {
@@ -130,38 +202,40 @@ export class PropertyAccessService {
     };
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // STEP 2 — Property Manager clicks Accept / Decline
-  // ─────────────────────────────────────────────────────────────────────────
+  // ─── REVIEW ACCESS REQUEST ────────────────────────────────────────────────
 
   async reviewAccessRequest(
+    dashboardId: string,
     requestId: string,
     reviewerId: string,
     dto: ReviewAccessRequestDto,
   ) {
+    const { propertyId } = await this._assertDashboardExists(dashboardId);
+
     const request = await this.prisma.propertyAccessRequest.findUnique({
       where: { id: requestId },
       include: { property: true, requester: true },
     });
 
     if (!request) throw new NotFoundException('Access request not found.');
-    if (request.status !== 'PENDING') {
+    if (request.propertyId !== propertyId)
+      throw new BadRequestException(
+        'This request does not belong to the given dashboard.',
+      );
+    if (request.status !== 'PENDING')
       throw new BadRequestException(
         `This request has already been ${request.status.toLowerCase()}.`,
       );
-    }
+
+    await this._assertCanReview(reviewerId, propertyId);
 
     const reviewer = await this.prisma.user.findUnique({
       where: { id: reviewerId },
       select: { name: true, email: true },
     });
 
-    await this._assertCanReview(reviewerId, request.propertyId);
-
     // ── APPROVED ──────────────────────────────────────────────────────────
     if (dto.action === 'APPROVED') {
-      let dashboardId: string | null = null;
-
       await this.prisma.$transaction(async (tx) => {
         await tx.propertyAccessRequest.update({
           where: { id: requestId },
@@ -174,13 +248,10 @@ export class PropertyAccessService {
 
         await tx.propertyAccess.upsert({
           where: {
-            propertyId_userId: {
-              propertyId: request.propertyId,
-              userId: request.requesterId,
-            },
+            propertyId_userId: { propertyId, userId: request.requesterId },
           },
           create: {
-            propertyId: request.propertyId,
+            propertyId,
             userId: request.requesterId,
             grantedBy: reviewerId,
             expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
@@ -194,12 +265,6 @@ export class PropertyAccessService {
           },
         });
 
-        const dashboard = await tx.propertyDashboard.findUnique({
-          where: { propertyId: request.propertyId },
-          select: { id: true },
-        });
-        dashboardId = dashboard?.id ?? null;
-
         await tx.activityLog.create({
           data: {
             category: ActivityCategory.USER_ACCESS,
@@ -209,28 +274,22 @@ export class PropertyAccessService {
         });
       });
 
-      // ── Notify requester ───────────────────────────────────────────────
       await this.notifications.accessApproved({
         userId: request.requesterId,
         approvedBy: reviewerId,
         approverName: reviewer?.name ?? 'Admin',
-        propertyId: request.propertyId,
+        propertyId,
         propertyName: request.property.name,
-        dashboardId: dashboardId ?? request.propertyId,
+        dashboardId,
       });
 
-      return {
-        message: 'Access approved.',
-        requestId,
-        propertyId: request.propertyId,
-      };
+      return { message: 'Access approved.', requestId, dashboardId };
     }
 
     // ── DECLINED ──────────────────────────────────────────────────────────
     if (dto.action === 'DECLINED') {
-      if (!dto.declineReason) {
+      if (!dto.declineReason)
         throw new BadRequestException('A decline reason is required.');
-      }
 
       await this.prisma.propertyAccessRequest.update({
         where: { id: requestId },
@@ -249,12 +308,11 @@ export class PropertyAccessService {
         },
       });
 
-      // ── Notify requester ───────────────────────────────────────────────
       await this.notifications.accessDeclined({
         userId: request.requesterId,
         declinedBy: reviewerId,
         declinerName: reviewer?.name ?? 'Admin',
-        propertyId: request.propertyId,
+        propertyId,
         propertyName: request.property.name,
       });
 
@@ -262,45 +320,15 @@ export class PropertyAccessService {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // STEP 3 — Check dashboard access
-  // ─────────────────────────────────────────────────────────────────────────
-
-  async checkDashboardAccess(
-    propertyId: string,
-    userId: string,
-    userRole: string,
-  ): Promise<{ hasAccess: boolean; reason?: string }> {
-    if (userRole === 'ADMIN') return { hasAccess: true };
-
-    const property = await this.prisma.property.findUnique({
-      where: { id: propertyId },
-      select: { propertyManagerId: true },
-    });
-    if (property?.propertyManagerId === userId) return { hasAccess: true };
-
-    const access = await this.prisma.propertyAccess.findUnique({
-      where: { propertyId_userId: { propertyId, userId } },
-    });
-
-    if (!access) return { hasAccess: false, reason: 'NO_ACCESS' };
-    if (access.revokedAt) return { hasAccess: false, reason: 'REVOKED' };
-    if (access.expiresAt && access.expiresAt < new Date())
-      return { hasAccess: false, reason: 'EXPIRED' };
-
-    return { hasAccess: true };
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Share dashboard directly via email/userId
-  // ─────────────────────────────────────────────────────────────────────────
+  // ─── SHARE DASHBOARD ──────────────────────────────────────────────────────
 
   async shareDashboard(
-    propertyId: string,
+    dashboardId: string,
     granterId: string,
     dto: ShareDashboardDto,
   ) {
-    const property = await this._assertPropertyExists(propertyId);
+    const { propertyId, property } =
+      await this._assertDashboardExists(dashboardId);
 
     const targetUser = await this.prisma.user.findFirst({
       where: {
@@ -308,21 +336,14 @@ export class PropertyAccessService {
         isDeleted: false,
       },
     });
-
-    if (!targetUser) {
+    if (!targetUser)
       throw new NotFoundException(
         `No user found with email or ID "${dto.emailOrUserId}".`,
       );
-    }
 
     const granter = await this.prisma.user.findUnique({
       where: { id: granterId },
       select: { name: true },
-    });
-
-    const dashboard = await this.prisma.propertyDashboard.findUnique({
-      where: { propertyId },
-      select: { id: true },
     });
 
     const access = await this.prisma.propertyAccess.upsert({
@@ -350,14 +371,13 @@ export class PropertyAccessService {
       },
     });
 
-    // ── Notify the invited user ────────────────────────────────────────────
     await this.notifications.dashboardShared({
       userId: targetUser.id,
       sharedById: granterId,
       sharerName: granter?.name ?? 'Admin',
       propertyId,
       propertyName: property.name,
-      dashboardId: dashboard?.id ?? propertyId,
+      dashboardId,
     });
 
     return {
@@ -372,32 +392,30 @@ export class PropertyAccessService {
     };
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Revoke access
-  // ─────────────────────────────────────────────────────────────────────────
+  // ─── REVOKE ACCESS ────────────────────────────────────────────────────────
 
   async revokeAccess(
-    propertyId: string,
+    dashboardId: string,
     targetUserId: string,
     revokerId: string,
     dto: RevokeAccessDto,
   ) {
-    const property = await this._assertPropertyExists(propertyId);
+    const { propertyId, property } =
+      await this._assertDashboardExists(dashboardId);
 
     const targetUser = await this.prisma.user.findUnique({
       where: { id: targetUserId },
       select: { name: true, role: true },
     });
+    if (!targetUser) throw new NotFoundException('User not found.');
 
     const access = await this.prisma.propertyAccess.findUnique({
       where: { propertyId_userId: { propertyId, userId: targetUserId } },
     });
-
-    if (!access || access.revokedAt) {
+    if (!access || access.revokedAt)
       throw new NotFoundException(
         'Active access record not found for this user.',
       );
-    }
 
     await this.prisma.propertyAccess.update({
       where: { propertyId_userId: { propertyId, userId: targetUserId } },
@@ -415,12 +433,10 @@ export class PropertyAccessService {
     return { message: 'Access revoked.' };
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Get dashboard access list
-  // ─────────────────────────────────────────────────────────────────────────
+  // ─── GET ACCESS LIST ──────────────────────────────────────────────────────
 
-  async getDashboardAccessList(propertyId: string) {
-    await this._assertPropertyExists(propertyId);
+  async getDashboardAccessList(dashboardId: string) {
+    const { propertyId } = await this._assertDashboardExists(dashboardId);
 
     return this.prisma.propertyAccess.findMany({
       where: {
@@ -443,11 +459,11 @@ export class PropertyAccessService {
     });
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Get pending requests
-  // ─────────────────────────────────────────────────────────────────────────
+  // ─── GET PENDING REQUESTS ─────────────────────────────────────────────────
 
-  async getPendingRequests(propertyId: string) {
+  async getPendingRequests(dashboardId: string) {
+    const { propertyId } = await this._assertDashboardExists(dashboardId);
+
     return this.prisma.propertyAccessRequest.findMany({
       where: { propertyId, status: 'PENDING' },
       include: {
@@ -457,43 +473,5 @@ export class PropertyAccessService {
       },
       orderBy: { createdAt: 'desc' },
     });
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // PRIVATE HELPERS
-  // ─────────────────────────────────────────────────────────────────────────
-
-  private async _assertPropertyExists(propertyId: string) {
-    const property = await this.prisma.property.findUnique({
-      where: { id: propertyId },
-    });
-    if (!property)
-      throw new NotFoundException(`Property "${propertyId}" not found.`);
-    return property;
-  }
-
-  private async _assertCanReview(reviewerId: string, propertyId: string) {
-    const reviewer = await this.prisma.user.findUnique({
-      where: { id: reviewerId },
-    });
-    if (!reviewer) throw new NotFoundException('Reviewer not found.');
-    if (reviewer.role === 'ADMIN') return;
-
-    const property = await this.prisma.property.findUnique({
-      where: { id: propertyId },
-    });
-    if (property?.propertyManagerId !== reviewerId) {
-      throw new ForbiddenException(
-        'You are not the Property Manager for this dashboard.',
-      );
-    }
-  }
-
-  private async _getAnyAdminId(): Promise<string | null> {
-    const admin = await this.prisma.user.findFirst({
-      where: { role: 'ADMIN', status: 'ACTIVE', isDeleted: false },
-      select: { id: true },
-    });
-    return admin?.id ?? null;
   }
 }
