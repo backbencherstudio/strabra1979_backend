@@ -1,7 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { UpdateUserLevelNotificationsDto } from './dto/update-user-level-notification.dto';
 import { UpdateBrandingDto } from './dto/update-branding.dto';
@@ -56,7 +53,8 @@ export class SettingsService {
       where: { id: adminId },
       data: {
         ...(dto.notif_admin_new_user_registration !== undefined && {
-          notif_admin_new_user_registration: dto.notif_admin_new_user_registration,
+          notif_admin_new_user_registration:
+            dto.notif_admin_new_user_registration,
         }),
         ...(dto.notif_admin_due_inspection !== undefined && {
           notif_admin_due_inspection: dto.notif_admin_due_inspection,
@@ -149,8 +147,7 @@ export class SettingsService {
           ot_due_inspection: dto.ot_due_inspection,
         }),
         ...(dto.ot_incomplete_inspection_report !== undefined && {
-          ot_incomplete_inspection_report:
-            dto.ot_incomplete_inspection_report,
+          ot_incomplete_inspection_report: dto.ot_incomplete_inspection_report,
         }),
       },
     });

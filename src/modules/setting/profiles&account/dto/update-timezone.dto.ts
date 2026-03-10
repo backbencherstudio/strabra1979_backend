@@ -11,8 +11,7 @@ export class UpdateTimezoneDto {
 
   @ApiPropertyOptional({
     example: 'America/Guatemala',
-    description:
-      'IANA timezone string. Required when auto_timezone is false.',
+    description: 'IANA timezone string. Required when auto_timezone is false.',
   })
   @IsOptional()
   @IsString()

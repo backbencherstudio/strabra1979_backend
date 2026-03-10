@@ -1,4 +1,4 @@
-import { SectionType } from "./dto/create-templates.dto";
+import { SectionType } from './dto/create-templates.dto';
 
 export const DEFAULT_FIXED_SECTIONS = [
   {

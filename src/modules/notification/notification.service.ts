@@ -349,7 +349,7 @@ export class NotificationService {
     userRole: string;
   }) {
     for (const adminId of params.adminIds) {
-      console.log({sendigto: adminId})
+      console.log({ sendigto: adminId });
       await this.send({
         type: NotificationType.NEW_USER_REGISTRATION,
         receiverId: adminId,

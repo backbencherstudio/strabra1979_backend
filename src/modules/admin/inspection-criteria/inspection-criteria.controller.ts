@@ -56,7 +56,8 @@ export class InspectionCriteriaController {
   @Get()
   @ApiOperation({
     summary: 'List all inspection criteria',
-    description: 'Returns all criteria records ordered by creation date descending.',
+    description:
+      'Returns all criteria records ordered by creation date descending.',
   })
   findAll() {
     return this.service.findAll();
@@ -70,7 +71,10 @@ export class InspectionCriteriaController {
       'headerFields, scoringCategories, mediaFields, nteConfig, ' +
       'additionalNotesConfig, repairPlanningConfig, healthThresholdConfig.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
   findOne(@Param('criteriaId') criteriaId: string) {
     return this.service.findOne(criteriaId);
   }
@@ -82,7 +86,10 @@ export class InspectionCriteriaController {
       'Updates top-level scalar fields only (name, description). ' +
       'Use the dedicated sub-endpoints below to modify each Json column.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
   update(
     @Param('criteriaId') criteriaId: string,
     @Body() dto: UpdateInspectionCriteriaDto,
@@ -93,9 +100,13 @@ export class InspectionCriteriaController {
   @Delete(':criteriaId')
   @ApiOperation({
     summary: 'Delete an inspection criteria',
-    description: 'Permanently deletes the criteria. Throws 400 if any dashboard template is linked to it.',
+    description:
+      'Permanently deletes the criteria. Throws 400 if any dashboard template is linked to it.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
   remove(@Param('criteriaId') criteriaId: string) {
     return this.service.remove(criteriaId);
   }
@@ -111,7 +122,10 @@ export class InspectionCriteriaController {
       'Returns the headerFields array. ' +
       'Each field: key, label, type ("text"|"dropdown"), placeholder, required, isSystem, order, options.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
   getHeaderFields(@Param('criteriaId') criteriaId: string) {
     return this.service.getHeaderFields(criteriaId);
   }
@@ -125,7 +139,10 @@ export class InspectionCriteriaController {
       'New field gets isSystem=false — fully editable and deletable. ' +
       'Key auto-generated as custom_{timestamp}.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
   addHeaderField(
     @Param('criteriaId') criteriaId: string,
     @Body() dto: AddHeaderFieldDto,
@@ -141,8 +158,14 @@ export class InspectionCriteriaController {
       'Custom fields: label, placeholder, required, and options all editable. ' +
       'To remove a dropdown option send the full array without it.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
-  @ApiParam({ name: 'fieldKey', description: 'e.g. "roofSystemType" or "custom_1748291234"' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
+  @ApiParam({
+    name: 'fieldKey',
+    description: 'e.g. "roofSystemType" or "custom_1748291234"',
+  })
   updateHeaderField(
     @Param('criteriaId') criteriaId: string,
     @Param('fieldKey') fieldKey: string,
@@ -154,10 +177,17 @@ export class InspectionCriteriaController {
   @Delete(':criteriaId/header-fields/:fieldKey')
   @ApiOperation({
     summary: 'Delete a custom header field',
-    description: 'Removes a custom field (isSystem=false). Order recalculated. Throws 403 for system fields.',
+    description:
+      'Removes a custom field (isSystem=false). Order recalculated. Throws 403 for system fields.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
-  @ApiParam({ name: 'fieldKey', description: 'Key of the custom field to delete' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
+  @ApiParam({
+    name: 'fieldKey',
+    description: 'Key of the custom field to delete',
+  })
   removeHeaderField(
     @Param('criteriaId') criteriaId: string,
     @Param('fieldKey') fieldKey: string,
@@ -176,7 +206,10 @@ export class InspectionCriteriaController {
       'Returns the scoringCategories array. Each: key, label, maxPoints, isSystem, order. ' +
       'Total maxPoints must not exceed 100.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
   getScoringCategories(@Param('criteriaId') criteriaId: string) {
     return this.service.getScoringCategories(criteriaId);
   }
@@ -188,7 +221,10 @@ export class InspectionCriteriaController {
       'Validates that adding maxPoints does not exceed 100pt total. ' +
       'Key auto-generated as custom_cat_{timestamp}.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
   addScoringCategory(
     @Param('criteriaId') criteriaId: string,
     @Body() dto: AddScoringCategoryDto,
@@ -203,8 +239,14 @@ export class InspectionCriteriaController {
       'System categories (isSystem=true): only label editable, maxPoints locked. ' +
       'Custom categories: both label and maxPoints editable. Validates 100pt total.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
-  @ApiParam({ name: 'categoryKey', description: 'e.g. "surfaceCondition" or "custom_cat_1748291234"' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
+  @ApiParam({
+    name: 'categoryKey',
+    description: 'e.g. "surfaceCondition" or "custom_cat_1748291234"',
+  })
   updateScoringCategory(
     @Param('criteriaId') criteriaId: string,
     @Param('categoryKey') categoryKey: string,
@@ -216,10 +258,17 @@ export class InspectionCriteriaController {
   @Delete(':criteriaId/scoring-categories/:categoryKey')
   @ApiOperation({
     summary: 'Delete a custom scoring category',
-    description: 'Removes custom category (isSystem=false). Order recalculated. Throws 403 for system categories.',
+    description:
+      'Removes custom category (isSystem=false). Order recalculated. Throws 403 for system categories.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
-  @ApiParam({ name: 'categoryKey', description: 'Key of the custom category to delete' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
+  @ApiParam({
+    name: 'categoryKey',
+    description: 'Key of the custom category to delete',
+  })
   removeScoringCategory(
     @Param('criteriaId') criteriaId: string,
     @Param('categoryKey') categoryKey: string,
@@ -238,7 +287,10 @@ export class InspectionCriteriaController {
       'Returns the mediaFields array. Each: key, label, placeholder, ' +
       'type ("file"|"embed"|"document"), isSystem, order, accept.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
   getMediaFields(@Param('criteriaId') criteriaId: string) {
     return this.service.getMediaFields(criteriaId);
   }
@@ -251,7 +303,10 @@ export class InspectionCriteriaController {
       'Both false is blocked — document slots are system-only. ' +
       'Key auto-generated as custom_media_{timestamp}.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
   addMediaField(
     @Param('criteriaId') criteriaId: string,
     @Body() dto: AddMediaFieldDto,
@@ -266,8 +321,14 @@ export class InspectionCriteriaController {
       'label and placeholder editable for all fields. ' +
       'accept editable only for file-type fields. Field type is immutable after creation.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
-  @ApiParam({ name: 'fieldKey', description: 'e.g. "aerialMap" or "custom_media_1748291234"' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
+  @ApiParam({
+    name: 'fieldKey',
+    description: 'e.g. "aerialMap" or "custom_media_1748291234"',
+  })
   updateMediaField(
     @Param('criteriaId') criteriaId: string,
     @Param('fieldKey') fieldKey: string,
@@ -279,10 +340,17 @@ export class InspectionCriteriaController {
   @Delete(':criteriaId/media-fields/:fieldKey')
   @ApiOperation({
     summary: 'Delete a custom media field',
-    description: 'Removes custom media field (isSystem=false). Order recalculated. Throws 403 for system fields.',
+    description:
+      'Removes custom media field (isSystem=false). Order recalculated. Throws 403 for system fields.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
-  @ApiParam({ name: 'fieldKey', description: 'Key of the custom media field to delete' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
+  @ApiParam({
+    name: 'fieldKey',
+    description: 'Key of the custom media field to delete',
+  })
   removeMediaField(
     @Param('criteriaId') criteriaId: string,
     @Param('fieldKey') fieldKey: string,
@@ -300,7 +368,10 @@ export class InspectionCriteriaController {
     summary: 'Get NTE config',
     description: 'Returns nteConfig: { label, placeholder }.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
   getNteConfig(@Param('criteriaId') criteriaId: string) {
     return this.service.getNteConfig(criteriaId);
   }
@@ -308,9 +379,13 @@ export class InspectionCriteriaController {
   @Patch(':criteriaId/nte-config')
   @ApiOperation({
     summary: 'Update NTE config',
-    description: 'Updates label and/or placeholder for the NTE input field. Omitted fields keep current values.',
+    description:
+      'Updates label and/or placeholder for the NTE input field. Omitted fields keep current values.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
   updateNteConfig(
     @Param('criteriaId') criteriaId: string,
     @Body() dto: UpdateNteConfigDto,
@@ -328,7 +403,10 @@ export class InspectionCriteriaController {
     summary: 'Get additional notes config',
     description: 'Returns additionalNotesConfig: { label, placeholder }.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
   getAdditionalNotesConfig(@Param('criteriaId') criteriaId: string) {
     return this.service.getAdditionalNotesConfig(criteriaId);
   }
@@ -336,9 +414,13 @@ export class InspectionCriteriaController {
   @Patch(':criteriaId/additional-notes-config')
   @ApiOperation({
     summary: 'Update additional notes config',
-    description: 'Updates label and/or placeholder for the Additional Notes textarea. Omitted fields keep current values.',
+    description:
+      'Updates label and/or placeholder for the Additional Notes textarea. Omitted fields keep current values.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
   updateAdditionalNotesConfig(
     @Param('criteriaId') criteriaId: string,
     @Body() dto: UpdateAdditionalNotesConfigDto,
@@ -359,7 +441,10 @@ export class InspectionCriteriaController {
       'These are the status options shown in the repair item dropdown on the inspection form. ' +
       'The actual repair items (title/status/description) are stored in Inspection.repairItems.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
   getRepairPlanningConfig(@Param('criteriaId') criteriaId: string) {
     return this.service.getRepairPlanningConfig(criteriaId);
   }
@@ -370,7 +455,10 @@ export class InspectionCriteriaController {
     description:
       'Replaces the full statuses array. Send the complete desired list — omit a status to remove it.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
   updateRepairPlanningConfig(
     @Param('criteriaId') criteriaId: string,
     @Body() dto: UpdateRepairPlanningConfigDto,
@@ -391,7 +479,10 @@ export class InspectionCriteriaController {
       'Each tier: minScore, maxScore, remainingLifeMinYears, remainingLifeMaxYears. ' +
       'Used to derive Inspection.healthLabel and Inspection.remainingLife from Inspection.overallScore.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
   getHealthThresholdConfig(@Param('criteriaId') criteriaId: string) {
     return this.service.getHealthThresholdConfig(criteriaId);
   }
@@ -403,7 +494,10 @@ export class InspectionCriteriaController {
       'Partially updates one or more tiers. Only send the tiers/fields you want to change. ' +
       'Validates minScore ≤ maxScore and remainingLifeMinYears ≤ remainingLifeMaxYears within each tier.',
   })
-  @ApiParam({ name: 'criteriaId', description: 'CUID of the InspectionCriteria' })
+  @ApiParam({
+    name: 'criteriaId',
+    description: 'CUID of the InspectionCriteria',
+  })
   updateHealthThresholdConfig(
     @Param('criteriaId') criteriaId: string,
     @Body() dto: UpdateHealthThresholdConfigDto,

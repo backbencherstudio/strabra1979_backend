@@ -65,7 +65,7 @@ import { ActivityLogModule } from './modules/admin/activity/activity.module';
     InspectionModule,
     InspectionFolderModule,
     NotificationModule,
-    ActivityLogModule
+    ActivityLogModule,
   ],
   controllers: [AppController],
   providers: [AppService],

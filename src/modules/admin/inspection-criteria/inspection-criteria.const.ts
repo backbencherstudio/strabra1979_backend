@@ -50,12 +50,48 @@ export const INSPECTION_CRITERIA = {
 
   // ── Scoring Categories (must sum to 100 pts) ───────────────────────────────
   scoringCategories: [
-    { key: 'surfaceCondition', label: 'Surface Condition',          maxPoints: 25, isSystem: true, order: 1 },
-    { key: 'seamsFlashings',   label: 'Seams & Flashings',          maxPoints: 20, isSystem: true, order: 2 },
-    { key: 'drainagePonding',  label: 'Drainage & Ponding',         maxPoints: 15, isSystem: true, order: 3 },
-    { key: 'penetrations',     label: 'Penetrations & Accessories', maxPoints: 10, isSystem: true, order: 4 },
-    { key: 'repairsHistory',   label: 'Repairs & Patch History',    maxPoints: 10, isSystem: true, order: 5 },
-    { key: 'ageExpectedLife',  label: 'Age vs. Expected Life',      maxPoints: 10, isSystem: true, order: 6 },
+    {
+      key: 'surfaceCondition',
+      label: 'Surface Condition',
+      maxPoints: 25,
+      isSystem: true,
+      order: 1,
+    },
+    {
+      key: 'seamsFlashings',
+      label: 'Seams & Flashings',
+      maxPoints: 20,
+      isSystem: true,
+      order: 2,
+    },
+    {
+      key: 'drainagePonding',
+      label: 'Drainage & Ponding',
+      maxPoints: 15,
+      isSystem: true,
+      order: 3,
+    },
+    {
+      key: 'penetrations',
+      label: 'Penetrations & Accessories',
+      maxPoints: 10,
+      isSystem: true,
+      order: 4,
+    },
+    {
+      key: 'repairsHistory',
+      label: 'Repairs & Patch History',
+      maxPoints: 10,
+      isSystem: true,
+      order: 5,
+    },
+    {
+      key: 'ageExpectedLife',
+      label: 'Age vs. Expected Life',
+      maxPoints: 10,
+      isSystem: true,
+      order: 6,
+    },
   ],
 
   // ── Media Fields ───────────────────────────────────────────────────────────
@@ -107,7 +143,6 @@ export const INSPECTION_CRITERIA = {
   // ── Repair Planning Config ─────────────────────────────────────────────────
   repairPlanningConfig: {
     status: 'Recommended Repair Plan',
-    
   },
 
   // ── Health Threshold Config ────────────────────────────────────────────────
