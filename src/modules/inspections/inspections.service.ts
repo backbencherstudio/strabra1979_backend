@@ -193,7 +193,6 @@ export class InspectionService {
       data: {
         dashboardId,
         inspectorId,
-        status: 'SUBMITTED',
         headerData: dto.headerData as any,
         scores: (dto.scores ?? {}) as any,
         repairItems: repairItems as any,
@@ -223,7 +222,7 @@ export class InspectionService {
           size: file.size,
           mediaFieldKey,
           category:
-            slot?.type === 'embed'
+            slot?.type === ''
               ? 'tour'
               : mediaFieldKey === 'aerialMap'
                 ? 'aerial'
@@ -365,11 +364,11 @@ export class InspectionService {
   private async _markOverdue(userId?: string) {
     await this.prisma.scheduledInspection.updateMany({
       where: {
-        status: 'ASSIGNED',
+        status: ScheduledInspectionStatus.ASSIGNED,
         scheduledAt: { lt: new Date() },
         ...(userId && { assignedTo: userId }),
       },
-      data: { status: 'DUE' },
+      data: { status: ScheduledInspectionStatus.DUE },
     });
   }
 

@@ -23,7 +23,7 @@ import { Request } from 'express';
 import { SWAGGER_AUTH } from 'src/common/swagger/swagger-auth';
 
 @ApiTags('Notifications')
-@ApiBearerAuth(SWAGGER_AUTH.admin)
+@ApiBearerAuth(SWAGGER_AUTH.operational)
 @UseGuards(JwtAuthGuard)
 @Controller('notifications')
 export class NotificationController {

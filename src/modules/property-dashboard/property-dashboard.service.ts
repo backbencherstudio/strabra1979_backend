@@ -13,7 +13,10 @@ import {
 } from './dto/property-dashboard.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Role } from 'src/common/guard/role/role.enum';
-import { ActivityCategory } from 'prisma/generated/enums';
+import {
+  ActivityCategory,
+  ScheduledInspectionStatus,
+} from 'prisma/generated/enums';
 import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
@@ -42,14 +45,10 @@ export class PropertyDashboardService {
   // ─── 1. CREATE PROPERTY + DASHBOARD ──────────────────────────────────────
 
   async createProperty(dto: CreatePropertyDto, adminId: string) {
-    const template = dto.templateId
-      ? await this.prisma.dashboardTemplate.findFirst({
-          where: { id: dto.templateId, status: 'ACTIVE' },
-        })
-      : await this.prisma.dashboardTemplate.findFirst({
-          where: { status: 'ACTIVE' },
-          orderBy: { createdAt: 'desc' },
-        });
+    const template = await this.prisma.dashboardTemplate.findFirst({
+      where: { status: 'ACTIVE' },
+      orderBy: { createdAt: 'desc' },
+    });
 
     if (!template)
       throw new BadRequestException(
@@ -70,6 +69,26 @@ export class PropertyDashboardService {
           `Property Manager with id "${dto.propertyManagerId}" not found.`,
         );
     }
+
+    // ── Validate assignee if nextInspectionDate + assignedTo given ────────
+    let assignee = null;
+    if (dto.nextInspectionDate && dto.assignedTo) {
+      assignee = await this.prisma.user.findFirst({
+        where: { id: dto.assignedTo, role: Role.OPERATIONAL, isDeleted: false },
+      });
+      if (!assignee)
+        throw new NotFoundException(
+          `Operational team member "${dto.assignedTo}" not found.`,
+        );
+    }
+
+    if (
+      dto.nextInspectionDate &&
+      new Date(dto.nextInspectionDate) <= new Date()
+    )
+      throw new BadRequestException(
+        'nextInspectionDate must be a future date.',
+      );
 
     const result = await this.prisma.$transaction(async (tx) => {
       const property = await tx.property.create({
@@ -93,6 +112,28 @@ export class PropertyDashboardService {
         },
       });
 
+      // ── Schedule inspection if nextInspectionDate + assignedTo provided ──
+      let scheduled = null;
+      if (dto.nextInspectionDate && dto.assignedTo) {
+        scheduled = await tx.scheduledInspection.create({
+          data: {
+            dashboardId: dashboard.id,
+            assignedTo: dto.assignedTo,
+            scheduledAt: new Date(dto.nextInspectionDate),
+            createdBy: adminId,
+            status: ScheduledInspectionStatus.ASSIGNED,
+          },
+        });
+
+        await tx.activityLog.create({
+          data: {
+            category: ActivityCategory.PROPERTY_DASHBOARD_UPDATE,
+            actor_role: Role.ADMIN,
+            message: `Inspection scheduled for ${property.name} on ${new Date(dto.nextInspectionDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`,
+          },
+        });
+      }
+
       await tx.activityLog.create({
         data: {
           category: ActivityCategory.PROPERTY_DASHBOARD_UPDATE,
@@ -101,12 +142,24 @@ export class PropertyDashboardService {
         },
       });
 
-      return { property, dashboard };
+      return { property, dashboard, scheduled };
     });
 
+    // ── Notify PM if assigned ─────────────────────────────────────────────
     if (pmUser) {
       await this.notifications.dashboardAssigned({
         propertyManagerId: pmUser.id,
+        assignedById: adminId,
+        propertyId: result.property.id,
+        propertyName: result.property.name,
+        dashboardId: result.dashboard.id,
+      });
+    }
+
+    // ── Notify assignee of scheduled inspection ───────────────────────────
+    if (assignee && result.scheduled) {
+      await this.notifications.newInspectionAssigned({
+        operationalUserId: assignee.id,
         assignedById: adminId,
         propertyId: result.property.id,
         propertyName: result.property.name,
@@ -279,10 +332,6 @@ export class PropertyDashboardService {
           take: 1,
           include: { mediaFiles: true },
         },
-        documents: {
-          where: { isArchived: false },
-          orderBy: { uploadedAt: 'desc' },
-        },
         folders: {
           include: {
             items: { select: { inspectionId: true } },
@@ -384,7 +433,7 @@ export class PropertyDashboardService {
         assignedTo: dto.assignedTo,
         scheduledAt: new Date(dto.scheduledAt),
         createdBy: adminId,
-        status: 'ASSIGNED',
+        status: ScheduledInspectionStatus.ASSIGNED,
       },
     });
 
@@ -400,6 +449,14 @@ export class PropertyDashboardService {
         actor_role: Role.ADMIN,
         message: `Inspection scheduled for ${property.name} on ${new Date(dto.scheduledAt).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`,
       },
+    });
+
+    await this.notifications.newInspectionAssigned({
+      operationalUserId: assignee.id,
+      assignedById: adminId,
+      propertyId,
+      propertyName: property.name,
+      dashboardId,
     });
 
     return {

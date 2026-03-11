@@ -105,7 +105,13 @@ export class InspectionController {
             nteValue: 7500,
             additionalComments: 'No active leaks at time of inspection.',
             inspectedAt: '2024-06-15T09:00:00.000Z',
-            mediaFieldKeys: ['mediaFiles', 'aerialMap'],
+            mediaFieldKeys: [
+              'mediaFiles',
+              'mediaFiles',
+              'documents',
+              'documents',
+              'documents',
+            ],
           }),
         },
         files: {
