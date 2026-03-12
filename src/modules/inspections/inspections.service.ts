@@ -11,7 +11,6 @@ import {
   ScheduledInspectionStatus,
 } from 'prisma/generated/enums';
 import { NotificationService } from '../notification/notification.service';
-import { inspect } from 'util';
 
 interface ScoringCategory {
   key: string;
@@ -53,8 +52,12 @@ export class InspectionService {
   // INSPECTION FORM
   // ═════════════════════════════════════════════════════════════════════════
 
-  async getInspectionForm(dashboardId: string) {
-    const { criteria } = await this._getCriteriaForDashboard(dashboardId);
+  async getInspectionForm(dashboardId: string, userId: string, role: string) {
+    const { dashboard, criteria } =
+      await this._getCriteriaForDashboard(dashboardId);
+
+    // ── Access check ──────────────────────────────────────────────────────
+    await this._assertPropertyAccess(dashboard.property.id, userId, role);
 
     return {
       success: true,
@@ -83,13 +86,21 @@ export class InspectionService {
     dashboardId: string,
     scheduledInspectionId: string,
     inspectorId: string,
+    inspectorRole: string,
     dto: SubmitInspectionDto,
     files: Express.Multer.File[],
   ) {
     const { dashboard, criteria } =
       await this._getCriteriaForDashboard(dashboardId);
 
-    // ── Validate scheduled inspection ────────────────────────────────────────
+    // ── Access check ──────────────────────────────────────────────────────
+    await this._assertPropertyAccess(
+      dashboard.property.id,
+      inspectorId,
+      inspectorRole,
+    );
+
+    // ── Validate scheduled inspection ─────────────────────────────────────
     const activeSchedule = await this.prisma.scheduledInspection.findUnique({
       where: { id: scheduledInspectionId },
     });
@@ -132,14 +143,13 @@ export class InspectionService {
     const thresholds =
       criteria.healthThresholdConfig as unknown as HealthThreshold;
 
-    // ── Validations ───────────────────────────────────────────────────────────
+    // ── Validations ───────────────────────────────────────────────────────
     for (const field of headerFields) {
       if (field.required && !dto.headerData?.[field.key])
         throw new BadRequestException(
           `Required header field "${field.label}" is missing.`,
         );
     }
-
     for (const category of categories) {
       const submitted = dto.scores?.[category.key];
       if (submitted !== undefined && submitted.score > category.maxPoints)
@@ -147,7 +157,6 @@ export class InspectionService {
           `Score for "${category.label}" is ${submitted.score} — max allowed is ${category.maxPoints}.`,
         );
     }
-
     const { statuses } = repairConfig;
     for (const item of dto.repairItems ?? []) {
       if (!statuses.includes(item.status))
@@ -155,7 +164,6 @@ export class InspectionService {
           `Repair status "${item.status}" is invalid. Allowed: ${statuses.join(', ')}.`,
         );
     }
-
     const validSlotKeys = mediaSlots.map((s) => s.key);
     for (const key of dto.mediaFieldKeys ?? []) {
       if (!validSlotKeys.includes(key))
@@ -163,8 +171,15 @@ export class InspectionService {
           `mediaFieldKey "${key}" does not exist in criteria.mediaFields.`,
         );
     }
+    if (
+      dto.mediaFieldKeys &&
+      dto.mediaFieldKeys.length !== (files ?? []).length
+    )
+      throw new BadRequestException(
+        `mediaFieldKeys length (${dto.mediaFieldKeys.length}) must match files length (${(files ?? []).length}).`,
+      );
 
-    // ── Compute score + health ────────────────────────────────────────────────
+    // ── Compute score + health ─────────────────────────────────────────────
     const overallScore = categories.reduce(
       (sum, cat) => sum + (dto.scores?.[cat.key]?.score ?? 0),
       0,
@@ -188,12 +203,11 @@ export class InspectionService {
       description: item.description ?? '',
     }));
 
-    // ── Create inspection row ─────────────────────────────────────────────────
+    // ── Create inspection row ──────────────────────────────────────────────
     const inspection = await this.prisma.inspection.create({
       data: {
         dashboardId,
         inspectorId,
-        status: 'SUBMITTED',
         headerData: dto.headerData as any,
         scores: (dto.scores ?? {}) as any,
         repairItems: repairItems as any,
@@ -206,12 +220,35 @@ export class InspectionService {
       },
     });
 
-    // ── Upload media files ────────────────────────────────────────────────────
-    const mediaFiles = [];
+    // ── Handle embed fields (tour3d etc.) ──────────────────────────────────
+    const savedMediaFiles = [];
+
+    for (const [mediaFieldKey, embedUrl] of Object.entries(
+      dto.embedFields ?? {},
+    )) {
+      const slot = mediaSlots.find((s) => s.key === mediaFieldKey);
+      if (!slot || slot.type !== 'embed') continue;
+
+      const url = String(embedUrl); // ← cast to string to fix TS2322
+
+      const mediaFile = await this.prisma.mediaFile.create({
+        data: {
+          inspectionId: inspection.id,
+          fileName: mediaFieldKey,
+          fileType: 'EMBED',
+          url,
+          size: null,
+          mediaFieldKey,
+          uploadedAt: new Date(),
+        },
+      });
+      savedMediaFiles.push(mediaFile);
+    }
+
+    // ── Handle file uploads ────────────────────────────────────────────────
     for (let i = 0; i < (files ?? []).length; i++) {
       const file = files[i];
       const mediaFieldKey = dto.mediaFieldKeys?.[i] ?? 'mediaFiles';
-      const slot = mediaSlots.find((s) => s.key === mediaFieldKey);
       const url = `https://your-storage.example.com/inspections/${inspection.id}/${Date.now()}_${file.originalname}`;
 
       const mediaFile = await this.prisma.mediaFile.create({
@@ -222,18 +259,10 @@ export class InspectionService {
           url,
           size: file.size,
           mediaFieldKey,
-          category:
-            slot?.type === 'embed'
-              ? 'tour'
-              : mediaFieldKey === 'aerialMap'
-                ? 'aerial'
-                : file.mimetype.startsWith('video')
-                  ? 'video'
-                  : 'photo',
           uploadedAt: new Date(),
         },
       });
-      mediaFiles.push(mediaFile);
+      savedMediaFiles.push(mediaFile);
     }
 
     const propertyName = dashboard.property?.name ?? 'Unknown Property';
@@ -242,7 +271,7 @@ export class InspectionService {
       select: { name: true, role: true },
     });
 
-    // ── Mark schedule COMPLETE ────────────────────────────────────────────────
+    // ── Mark schedule COMPLETE ─────────────────────────────────────────────
     await this.prisma.scheduledInspection.update({
       where: { id: activeSchedule.id },
       data: {
@@ -251,7 +280,7 @@ export class InspectionService {
       },
     });
 
-    // ── Activity log ──────────────────────────────────────────────────────────
+    // ── Activity log ───────────────────────────────────────────────────────
     await this.prisma.activityLog.create({
       data: {
         category: ActivityCategory.PROPERTY_DASHBOARD_UPDATE,
@@ -260,7 +289,7 @@ export class InspectionService {
       },
     });
 
-    // ── Notify admins ─────────────────────────────────────────────────────────
+    // ── Notify admins ──────────────────────────────────────────────────────
     const admins = await this.prisma.user.findMany({
       where: { role: 'ADMIN', status: 'ACTIVE', isDeleted: false },
       select: { id: true },
@@ -274,7 +303,7 @@ export class InspectionService {
       inspectionId: inspection.id,
     });
 
-    // ── Notify dashboard access holders ──────────────────────────────────────
+    // ── Notify dashboard access holders ───────────────────────────────────
     const accesses = await this.prisma.propertyAccess.findMany({
       where: {
         propertyId: dashboard.property?.id,
@@ -299,7 +328,7 @@ export class InspectionService {
       message: 'Inspection submitted successfully',
       data: {
         ...inspection,
-        mediaFiles,
+        mediaFiles: savedMediaFiles,
         summary: { overallScore, healthLabel, remainingLife },
       },
     };
@@ -309,7 +338,7 @@ export class InspectionService {
   // INSPECTION QUERIES
   // ═════════════════════════════════════════════════════════════════════════
 
-  async findOne(inspectionId: string) {
+  async findOne(inspectionId: string, userId: string, role: string) {
     const inspection = await this.prisma.inspection.findUnique({
       where: { id: inspectionId },
       include: {
@@ -317,14 +346,26 @@ export class InspectionService {
           select: { id: true, name: true, email: true, avatar: true },
         },
         mediaFiles: true,
+        dashboard: { include: { property: { select: { id: true } } } },
       },
     });
     if (!inspection) throw new NotFoundException('Inspection not found.');
+
+    // ── Access check ──────────────────────────────────────────────────────
+    await this._assertPropertyAccess(
+      inspection.dashboard.property.id,
+      userId,
+      role,
+    );
+
     return { success: true, message: 'Inspection retrieved', data: inspection };
   }
 
-  async findAllForDashboard(dashboardId: string) {
-    await this._assertDashboardExists(dashboardId);
+  async findAllForDashboard(dashboardId: string, userId: string, role: string) {
+    const dashboard = await this._assertDashboardExists(dashboardId);
+
+    // ── Access check ──────────────────────────────────────────────────────
+    await this._assertPropertyAccess(dashboard.propertyId, userId, role);
 
     const scheduled = await this.prisma.scheduledInspection.findMany({
       where: { dashboardId },
@@ -351,7 +392,6 @@ export class InspectionService {
         address: s.dashboard.property.address,
         date: s.scheduledAt,
         status: s.status,
-
         dashboardId: s.dashboardId,
         createdAt: s.createdAt,
       })),
@@ -365,16 +405,17 @@ export class InspectionService {
   private async _markOverdue(userId?: string) {
     await this.prisma.scheduledInspection.updateMany({
       where: {
-        status: 'ASSIGNED',
+        status: ScheduledInspectionStatus.ASSIGNED,
         scheduledAt: { lt: new Date() },
         ...(userId && { assignedTo: userId }),
       },
-      data: { status: 'DUE' },
+      data: { status: ScheduledInspectionStatus.DUE },
     });
   }
 
   async getAssignedInspections(
     userId: string,
+    role: string,
     filters: { status?: string; page: number; limit: number },
   ) {
     const { status, page, limit } = filters;
@@ -531,14 +572,23 @@ export class InspectionService {
     };
   }
 
-  async getOneScheduled(scheduledInspectionId: string) {
+  async getOneScheduled(
+    scheduledInspectionId: string,
+    userId: string,
+    role: string,
+  ) {
     const scheduled = await this.prisma.scheduledInspection.findUnique({
       where: { id: scheduledInspectionId },
       include: {
         dashboard: {
           include: {
             property: {
-              select: { name: true, address: true, propertyType: true },
+              select: {
+                id: true,
+                name: true,
+                address: true,
+                propertyType: true,
+              },
             },
           },
         },
@@ -551,6 +601,13 @@ export class InspectionService {
 
     if (!scheduled)
       throw new NotFoundException('Scheduled inspection not found.');
+
+    // ── Access check ──────────────────────────────────────────────────────
+    await this._assertPropertyAccess(
+      scheduled.dashboard.property.id,
+      userId,
+      role,
+    );
 
     return {
       success: true,
@@ -577,12 +634,27 @@ export class InspectionService {
   ) {
     const scheduled = await this.prisma.scheduledInspection.findUnique({
       where: { id: scheduledInspectionId },
+      include: {
+        dashboard: {
+          include: {
+            property: { select: { id: true, name: true } },
+          },
+        },
+      },
     });
 
     if (!scheduled)
       throw new NotFoundException('Scheduled inspection not found.');
     if (scheduled.assignedTo !== operationalUserId)
       throw new ForbiddenException('This inspection is not assigned to you.');
+
+    // ── Access check ──────────────────────────────────────────────────────
+    await this._assertPropertyAccess(
+      scheduled.dashboard.property.id,
+      operationalUserId,
+      'OPERATIONAL',
+    );
+
     if (scheduled.status === 'COMPLETE')
       throw new BadRequestException('This inspection is already completed.');
     if (scheduled.status === 'IN_PROGRESS')
@@ -603,6 +675,30 @@ export class InspectionService {
   // ═════════════════════════════════════════════════════════════════════════
   // PRIVATE HELPERS
   // ═════════════════════════════════════════════════════════════════════════
+
+  private async _assertPropertyAccess(
+    propertyId: string,
+    userId: string,
+    role: string,
+  ) {
+    // ADMIN always has access
+    if (role === 'ADMIN') return;
+
+    const now = new Date();
+    const access = await this.prisma.propertyAccess.findFirst({
+      where: {
+        propertyId,
+        userId,
+        revokedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      },
+    });
+
+    if (!access)
+      throw new ForbiddenException(
+        'You do not have access to this property dashboard. Contact your admin.',
+      );
+  }
 
   private async _assertDashboardExists(dashboardId: string) {
     const dashboard = await this.prisma.propertyDashboard.findUnique({

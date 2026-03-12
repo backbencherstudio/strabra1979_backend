@@ -57,8 +57,12 @@ export class InspectionController {
     description: 'CUID of the PropertyDashboard',
   })
   @ApiOkResponse({ description: 'Form config returned.' })
-  getForm(@Param('dashboardId') dashboardId: string) {
-    return this.service.getInspectionForm(dashboardId);
+  getForm(@Param('dashboardId') dashboardId: string, @Req() req: Request) {
+    return this.service.getInspectionForm(
+      dashboardId,
+      req.user.userId,
+      req.user.role,
+    );
   }
 
   @Post('property/:dashboardId/submit/:scheduledInspectionId')
@@ -105,7 +109,13 @@ export class InspectionController {
             nteValue: 7500,
             additionalComments: 'No active leaks at time of inspection.',
             inspectedAt: '2024-06-15T09:00:00.000Z',
-            mediaFieldKeys: ['mediaFiles', 'aerialMap'],
+            mediaFieldKeys: [
+              'mediaFiles',
+              'mediaFiles',
+              'documents',
+              'documents',
+              'documents',
+            ],
           }),
         },
         files: {
@@ -133,6 +143,7 @@ export class InspectionController {
       dashboardId,
       scheduledInspectionId,
       req.user.userId,
+      req.user.role,
       dto,
       files ?? [],
     );
@@ -150,8 +161,15 @@ export class InspectionController {
     description: 'CUID of the PropertyDashboard',
   })
   @ApiOkResponse({ description: 'List of inspections.' })
-  findAllForDashboard(@Param('dashboardId') dashboardId: string) {
-    return this.service.findAllForDashboard(dashboardId);
+  findAllForDashboard(
+    @Param('dashboardId') dashboardId: string,
+    @Req() req: Request,
+  ) {
+    return this.service.findAllForDashboard(
+      dashboardId,
+      req.user.userId,
+      req.user.role,
+    );
   }
 
   @Get(':inspectionId')
@@ -161,8 +179,8 @@ export class InspectionController {
   })
   @ApiParam({ name: 'inspectionId', description: 'CUID of the Inspection' })
   @ApiOkResponse({ description: 'Full inspection record returned.' })
-  findOne(@Param('inspectionId') inspectionId: string) {
-    return this.service.findOne(inspectionId);
+  findOne(@Param('inspectionId') inspectionId: string, @Req() req: Request) {
+    return this.service.findOne(inspectionId, req.user.userId, req.user.role);
   }
 
   // ═════════════════════════════════════════════════════════════════════════
@@ -184,17 +202,17 @@ export class InspectionController {
   })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 10 })
-  getMyScheduled(
+  getAssignedInspections(
     @Req() req: Request,
     @Query('status') status?: string,
     @Query('page') page = '1',
     @Query('limit') limit = '10',
   ) {
-    return this.service.getAssignedInspections(req.user?.userId, {
-      status,
-      page: +page,
-      limit: +limit,
-    });
+    return this.service.getAssignedInspections(
+      req.user.userId,
+      req.user.role, // ← add this
+      { status, page: +page, limit: +limit },
+    );
   }
 
   // ═════════════════════════════════════════════════════════════════════════
@@ -259,8 +277,13 @@ export class InspectionController {
   })
   getOneScheduled(
     @Param('scheduledInspectionId') scheduledInspectionId: string,
+    @Req() req: Request,
   ) {
-    return this.service.getOneScheduled(scheduledInspectionId);
+    return this.service.getOneScheduled(
+      scheduledInspectionId,
+      req.user.userId,
+      req.user.role,
+    );
   }
 
   // ═════════════════════════════════════════════════════════════════════════

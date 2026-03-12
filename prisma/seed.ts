@@ -298,6 +298,88 @@ export const DASHBOARD_TEMPLATE_SEED = {
   ],
 };
 
+const ASSIGNED_TO = 'cmmlnbk3900030ou81inxlhw6'; // OPERATIONAL user
+const PROPERTY_MANAGER_ID = 'cmmlnbk2v00010ou8b7w5rcm0'; // PROPERTY_MANAGER user
+const NEXT_INSPECTION = '2026-10-15T00:00:00.000Z';
+
+const PROPERTIES_SEED = [
+  {
+    name: 'Sunset Office Complex',
+    address: '1234 Sunset Blvd, Los Angeles, CA 90028',
+    propertyType: 'Commercial',
+  },
+  {
+    name: 'Summit Heights Apartments',
+    address: '567 Summit Ave, New York, NY 10001',
+    propertyType: 'Residential',
+  },
+  {
+    name: 'Green View Apartments',
+    address: '890 Green St, Chicago, IL 60601',
+    propertyType: 'Residential',
+  },
+  {
+    name: 'Private Residence',
+    address: '22 Oak Lane, Austin, TX 78701',
+    propertyType: 'Residential',
+  },
+  {
+    name: 'Harbor Industrial Park',
+    address: '300 Harbor Rd, Houston, TX 77001',
+    propertyType: 'Industrial',
+  },
+  {
+    name: 'Riverside Mixed Use Plaza',
+    address: '45 Riverside Dr, Miami, FL 33101',
+    propertyType: 'Mixed Use',
+  },
+  {
+    name: 'Downtown Commerce Center',
+    address: '100 Main St, Seattle, WA 98101',
+    propertyType: 'Commercial',
+  },
+  {
+    name: 'Lakeside Business Complex',
+    address: '78 Lakeside Blvd, Denver, CO 80201',
+    propertyType: 'Commercial',
+  },
+  {
+    name: 'Northgate Industrial Hub',
+    address: '500 Northgate Ave, Phoenix, AZ 85001',
+    propertyType: 'Industrial',
+  },
+  {
+    name: 'Maple Grove Residences',
+    address: '33 Maple Grove Rd, Portland, OR 97201',
+    propertyType: 'Residential',
+  },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function sendNotification(params: {
+  type: string;
+  receiverId: string;
+  senderId?: string;
+  entityId?: string;
+  text: string;
+}) {
+  const event = await prisma.notificationEvent.create({
+    data: { type: params.type, text: params.text, status: 1 },
+  });
+  await prisma.notification.create({
+    data: {
+      sender_id: params.senderId ?? null,
+      receiver_id: params.receiverId,
+      notification_event_id: event.id,
+      entity_id: params.entityId ?? null,
+      status: 1,
+    },
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN
 // ─────────────────────────────────────────────────────────────────────────────
@@ -371,14 +453,14 @@ async function main() {
 
   // ── 3. Seed Dashboard Template ─────────────────────────────────────────────
 
-  const existingTemplate = await prisma.dashboardTemplate.findFirst({
+  let template = await prisma.dashboardTemplate.findFirst({
     where: { name: DASHBOARD_TEMPLATE_SEED.name },
   });
 
-  if (existingTemplate) {
+  if (template) {
     console.log('✅ Dashboard template already exists');
   } else {
-    const template = await prisma.dashboardTemplate.create({
+    template = await prisma.dashboardTemplate.create({
       data: {
         name: DASHBOARD_TEMPLATE_SEED.name,
         status: 'ACTIVE',
@@ -388,6 +470,140 @@ async function main() {
     });
     console.log(
       `🚀 Created dashboard template → "${template.name}" (${template.id})`,
+    );
+  }
+
+  // ── 4. Seed Property Dashboards ────────────────────────────────────────────
+
+  const pmUser = await prisma.user.findFirst({
+    where: { id: PROPERTY_MANAGER_ID },
+  });
+  const opUser = await prisma.user.findFirst({ where: { id: ASSIGNED_TO } });
+  const adminUser = await prisma.user.findFirst({
+    where: { role: Role.ADMIN, status: UserStatus.ACTIVE },
+  });
+
+  if (!pmUser)
+    console.warn(
+      `⚠️  Property Manager "${PROPERTY_MANAGER_ID}" not found — PM fields will be skipped.`,
+    );
+  if (!opUser)
+    console.warn(
+      `⚠️  Operational user "${ASSIGNED_TO}" not found — scheduling will be skipped.`,
+    );
+  if (!adminUser)
+    console.warn(`⚠️  No active admin found — notifications will be skipped.`);
+
+  for (const p of PROPERTIES_SEED) {
+    const existing = await prisma.property.findFirst({
+      where: { name: p.name },
+    });
+
+    if (existing) {
+      console.log(`✅ Property already exists → "${p.name}"`);
+      continue;
+    }
+
+    // ── Create property ──────────────────────────────────────────────────────
+    const property = await prisma.property.create({
+      data: {
+        name: p.name,
+        address: p.address,
+        propertyType: p.propertyType,
+        nextInspectionDate: new Date(NEXT_INSPECTION),
+        propertyManagerId: pmUser?.id ?? null,
+        activeTemplateId: template.id,
+      },
+    });
+
+    // ── Create dashboard ─────────────────────────────────────────────────────
+    const dashboard = await prisma.propertyDashboard.create({
+      data: {
+        propertyId: property.id,
+        templateId: template.id,
+        templateSnapshot: template.sections,
+      },
+    });
+
+    // ── Grant PropertyAccess to PM ───────────────────────────────────────────
+    if (pmUser && adminUser) {
+      await prisma.propertyAccess.create({
+        data: {
+          propertyId: property.id,
+          userId: pmUser.id,
+          grantedBy: adminUser.id,
+          grantedAt: new Date(),
+        },
+      });
+    }
+
+    // ── Grant PropertyAccess to operational user ─────────────────────────────
+    if (opUser && adminUser) {
+      await prisma.propertyAccess.create({
+        data: {
+          propertyId: property.id,
+          userId: opUser.id,
+          grantedBy: adminUser.id,
+          grantedAt: new Date(),
+        },
+      });
+    }
+
+    // ── Schedule inspection ──────────────────────────────────────────────────
+    let scheduled = null;
+    if (opUser && adminUser) {
+      scheduled = await prisma.scheduledInspection.create({
+        data: {
+          dashboardId: dashboard.id,
+          assignedTo: opUser.id,
+          scheduledAt: new Date(NEXT_INSPECTION),
+          createdBy: adminUser.id,
+          status: 'ASSIGNED',
+        },
+      });
+
+      await prisma.activityLog.create({
+        data: {
+          category: 'PROPERTY_DASHBOARD_UPDATE',
+          actor_role: Role.ADMIN,
+          message: `Inspection scheduled for ${property.name} on ${new Date(NEXT_INSPECTION).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`,
+        },
+      });
+    }
+
+    // ── Activity log — dashboard created ─────────────────────────────────────
+    await prisma.activityLog.create({
+      data: {
+        category: 'PROPERTY_DASHBOARD_UPDATE',
+        actor_role: Role.ADMIN,
+        message: `${property.name} property dashboard created`,
+      },
+    });
+
+    // ── Notify PM ────────────────────────────────────────────────────────────
+    if (pmUser && adminUser) {
+      await sendNotification({
+        type: 'DASHBOARD_ASSIGNED',
+        receiverId: pmUser.id,
+        senderId: adminUser.id,
+        entityId: property.id,
+        text: `You've been assigned to a new property dashboard by an admin.`,
+      });
+    }
+
+    // ── Notify operational user ──────────────────────────────────────────────
+    if (opUser && adminUser && scheduled) {
+      await sendNotification({
+        type: 'NEW_INSPECTION_ASSIGNED',
+        receiverId: opUser.id,
+        senderId: adminUser.id,
+        entityId: property.id,
+        text: `You've been assigned to a new property inspection.`,
+      });
+    }
+
+    console.log(
+      `🚀 Created property → "${property.name}" | dashboard: ${dashboard.id}`,
     );
   }
 

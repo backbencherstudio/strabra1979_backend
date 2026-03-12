@@ -22,7 +22,6 @@ export class UserManagementService {
     const skip = (page - 1) * limit;
 
     const where: any = {
-      isDeleted: false,
       ...(role && { role }),
       ...(status && { status }),
       ...(search && {
@@ -77,7 +76,7 @@ export class UserManagementService {
 
   async findOne(id: string) {
     const user = await this.prisma.user.findFirst({
-      where: { id, isDeleted: false },
+      where: { id },
       select: {
         id: true,
         email: true,
@@ -112,7 +111,7 @@ export class UserManagementService {
 
   async changeStatus(id: string, dto: ChangeUserStatusDto, currentUser: any) {
     const user = await this.prisma.user.findFirst({
-      where: { id, isDeleted: false },
+      where: { id },
     });
 
     if (!user) {
@@ -132,6 +131,8 @@ export class UserManagementService {
       updateData.approved_by = currentUser.userId;
       updateData.access_revoked_at = null;
       updateData.access_revoked_by = null;
+      updateData.isDeleted = false;
+      updateData.deleted_at = null;
     }
 
     if (dto.status === UserStatus.DEACTIVATED) {

@@ -23,6 +23,7 @@ import { InspectionModule } from './modules/inspections/inspections.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { InspectionFolderModule } from './modules/inspection-folder/inspection-folder.module';
 import { ActivityLogModule } from './modules/admin/activity/activity.module';
+import { OverviewModule } from './modules/overview/overview.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { ActivityLogModule } from './modules/admin/activity/activity.module';
     PrismaModule,
     AuthModule,
     MailModule,
+    OverviewModule,
     AdminModule,
     ProfileSettingModule,
     AdminSettingsModule,

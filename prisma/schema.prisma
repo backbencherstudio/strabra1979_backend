@@ -236,7 +236,6 @@ model PropertyDashboard {
   // Relations
   property             Property              @relation(fields: [propertyId], references: [id])
   inspections          Inspection[]
-  documents            Document[]
   folders              InspectionFolder[]
   scheduledInspections ScheduledInspection[]
 
@@ -248,10 +247,9 @@ model PropertyDashboard {
 // ─────────────────────────────────────────
 
 model Inspection {
-  id          String           @id @default(cuid())
+  id          String @id @default(cuid())
   dashboardId String
   inspectorId String
-  status      InspectionStatus @default(DRAFT)
 
   // ── Inspector fills these at inspection time ──────────────────────────────
 
@@ -322,13 +320,6 @@ model MediaFile {
   @@map("media_files")
 }
 
-enum ScheduledInspectionStatus {
-  ASSIGNED // scheduled, not yet started
-  IN_PROGRESS // operational team started
-  COMPLETE // inspection submitted
-  DUE // past scheduledAt, not yet started
-}
-
 model ScheduledInspection {
   id          String                    @id @default(cuid())
   dashboardId String
@@ -343,10 +334,10 @@ model ScheduledInspection {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  dashboard PropertyDashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
-  assignee         User              @relation("AssignedInspections", fields: [assignedTo], references: [id])
-  creator          User              @relation("CreatedSchedules", fields: [createdBy], references: [id])
-  inspection       Inspection?       @relation(fields: [inspectionId], references: [id])
+  dashboard  PropertyDashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  assignee   User              @relation("AssignedInspections", fields: [assignedTo], references: [id])
+  creator    User              @relation("CreatedSchedules", fields: [createdBy], references: [id])
+  inspection Inspection?       @relation(fields: [inspectionId], references: [id])
 
   @@map("scheduled_inspections")
 }
@@ -433,30 +424,6 @@ model PropertyAccessRequest {
 
   @@unique([propertyId, requesterId]) // one pending request per property+user
   @@map("property_access_requests")
-}
-
-// ─────────────────────────────────────────
-// DOCUMENTS
-// ─────────────────────────────────────────
-
-model Document {
-  id          String   @id @default(cuid())
-  dashboardId String
-  name        String
-  url         String
-  fileSize    Int?
-  version     Int      @default(1)
-  isArchived  Boolean  @default(false)
-  uploadedAt  DateTime @default(now())
-
-  dashboard PropertyDashboard @relation(fields: [dashboardId], references: [id])
-
-  @@map("documents")
-}
-
-enum ActivityCategory {
-  PROPERTY_DASHBOARD_UPDATE
-  USER_ACCESS
 }
 
 model ActivityLog {
@@ -581,13 +548,6 @@ enum MediaType {
   EMBED
 }
 
-enum InspectionStatus {
-  DRAFT
-  SUBMITTED
-  APPROVED
-  ARCHIVED
-}
-
 enum TemplateStatus {
   ACTIVE
   INACTIVE
@@ -599,4 +559,17 @@ enum AccessRequestStatus {
   APPROVED
   DECLINED
   CANCELLED
+}
+
+enum ActivityCategory {
+  PROPERTY_DASHBOARD_UPDATE
+  USER_ACCESS
+}
+
+enum ScheduledInspectionStatus {
+  ASSIGNED // scheduled, not yet started
+  IN_PROGRESS // operational team started
+  COMPLETE // inspection submitted
+  DUE // past scheduledAt, not yet started
+  PUBLISHED // admin published it
 }

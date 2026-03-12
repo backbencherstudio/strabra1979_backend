@@ -107,4 +107,13 @@ export class SubmitInspectionDto {
   @IsArray()
   @IsString({ each: true })
   mediaFieldKeys?: string[];
+
+  @ApiPropertyOptional({
+    description:
+      'Embed URL fields keyed by mediaFieldKey (e.g. tour3d, virtualWalkthrough)',
+    example: { tour3d: 'https://my3dtour.com/abc123' },
+  })
+  @IsOptional()
+  @IsObject()
+  embedFields?: Record<string, string>;
 }

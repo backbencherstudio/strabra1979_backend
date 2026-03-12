@@ -22,9 +22,11 @@ import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/common/guard/role/roles.guard';
 import { Roles } from 'src/common/guard/role/roles.decorator';
 import { Role } from 'src/common/guard/role/role.enum';
+import { SWAGGER_AUTH } from 'src/common/swagger/swagger-auth';
+import { UserStatus } from 'prisma/generated/enums';
 
 @ApiTags('User Management')
-@ApiBearerAuth()
+@ApiBearerAuth(SWAGGER_AUTH.admin)
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('user-management')
 export class UserManagementController {
@@ -41,7 +43,7 @@ export class UserManagementController {
   @ApiQuery({
     name: 'status',
     required: false,
-    enum: ['ACTIVE', 'DEACTIVATED', 'DELETED'],
+    enum: UserStatus,
   })
   @ApiQuery({
     name: 'search',

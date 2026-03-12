@@ -44,28 +44,27 @@ export class CreatePropertyDto {
 
   @ApiPropertyOptional({
     description: 'ISO date string for the next scheduled inspection',
-    example: '2025-05-15T00:00:00.000Z',
+    example: '2026-10-15T00:00:00.000Z',
   })
   @IsOptional()
   @IsDateString()
   nextInspectionDate?: string;
 
   @ApiPropertyOptional({
+    description: 'Operational team user ID to assign',
+    example: 'cmmlnbk3900030ou81inxlhw6',
+  })
+  @IsOptional()
+  @IsString()
+  assignedTo?: string;
+
+  @ApiPropertyOptional({
     description: 'User ID of the Property Manager to assign',
-    example: 'cmm4g1m4f0001pwu8u9z7v4ml',
+    example: 'cmmlnbk2v00010ou8b7w5rcm0',
   })
   @IsOptional()
   @IsString()
   propertyManagerId?: string;
-
-  @ApiPropertyOptional({
-    description:
-      'Dashboard Template ID to use. If omitted the system will use the default active template.',
-    example: 'cmm8zctum0000dgu8omd07wuo',
-  })
-  @IsOptional()
-  @IsString()
-  templateId?: string;
 }
 
 // ─── Schedule Inspection (separate action from property card)
@@ -77,7 +76,7 @@ export class ScheduleInspectionDto {
 
   @ApiProperty({
     description: 'Operational team user ID to assign',
-    example: 'cmm4g1m4q0003pwu8c4ghgjzi',
+    example: 'cmmlnbk3900030ou81inxlhw6',
   })
   @IsString()
   assignedTo: string;

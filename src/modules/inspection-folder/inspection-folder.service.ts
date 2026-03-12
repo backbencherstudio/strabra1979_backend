@@ -30,7 +30,6 @@ export class InspectionFolderService {
             inspection: {
               select: {
                 id: true,
-                status: true,
                 overallScore: true,
                 healthLabel: true,
                 inspectedAt: true,
@@ -168,7 +167,7 @@ export class InspectionFolderService {
       },
       include: {
         items: {
-          include: { inspection: { select: { id: true, status: true } } },
+          include: { inspection: { select: { id: true } } },
         },
       },
     });
