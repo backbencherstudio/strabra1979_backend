@@ -180,7 +180,12 @@ export class PropertyDashboardController {
     @Body() dto: ScheduleInspectionDto,
     @Req() req: Request,
   ) {
-    return this.service.scheduleInspection(dashboardId, dto, req.user?.userId);
+    return this.service.scheduleInspection(
+      dashboardId,
+      dto,
+      req.user?.userId,
+      req.user?.role,
+    );
   }
 
   // ─── ASSIGN USER TO PROPERTY ──────────────────────────────────────────────
@@ -221,8 +226,12 @@ export class PropertyDashboardController {
     name: 'dashboardId',
     description: 'CUID of the PropertyDashboard',
   })
-  getAccess(@Param('dashboardId') dashboardId: string) {
-    return this.service.getPropertyAccess(dashboardId);
+  getAccess(@Param('dashboardId') dashboardId: string, @Req() req: Request) {
+    return this.service.getPropertyAccess(
+      dashboardId,
+      req.user?.userId,
+      req.user?.role,
+    );
   }
 
   // ─── SET ACCESS EXPIRATION ────────────────────────────────────────────────

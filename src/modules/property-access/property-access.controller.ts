@@ -35,12 +35,30 @@ import { Role } from 'src/common/guard/role/role.enum';
 import { AccessRequestStatus } from 'prisma/generated/enums';
 
 @ApiTags('Property Access')
-@ApiBearerAuth(SWAGGER_AUTH.authorized_viewer)
+@ApiBearerAuth(SWAGGER_AUTH.admin)
 // @ApiBearerAuth(SWAGGER_AUTH.admin)
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('properties/dashboard/:dashboardId')
 export class PropertyAccessController {
   constructor(private readonly service: PropertyAccessService) {}
+
+  // ─── GET ACCESS LIST ──────────────────────────────────────────────────────
+
+  @Get('access-list')
+  @Roles(Role.ADMIN, Role.PROPERTY_MANAGER)
+  @ApiOperation({
+    summary: 'Get all users with active access to this dashboard',
+    description:
+      'Returns active (non-revoked, non-expired) access records. ' +
+      "Includes each user's name, email, avatar, role, and expiry date.",
+  })
+  @ApiParam({
+    name: 'dashboardId',
+    description: 'CUID of the PropertyDashboard',
+  })
+  getAccessList(@Param('dashboardId') dashboardId: string) {
+    return this.service.getDashboardAccessList(dashboardId);
+  }
 
   // ─── CHECK ACCESS ─────────────────────────────────────────────────────────
 
@@ -200,24 +218,6 @@ export class PropertyAccessController {
     @Req() req: Request,
   ) {
     return this.service.shareDashboard(dashboardId, req.user.userId, dto);
-  }
-
-  // ─── GET ACCESS LIST ──────────────────────────────────────────────────────
-
-  @Get('access')
-  @Roles(Role.ADMIN, Role.PROPERTY_MANAGER)
-  @ApiOperation({
-    summary: 'Get all users with active access to this dashboard',
-    description:
-      'Returns active (non-revoked, non-expired) access records. ' +
-      "Includes each user's name, email, avatar, role, and expiry date.",
-  })
-  @ApiParam({
-    name: 'dashboardId',
-    description: 'CUID of the PropertyDashboard',
-  })
-  getAccessList(@Param('dashboardId') dashboardId: string) {
-    return this.service.getDashboardAccessList(dashboardId);
   }
 
   // ─── REVOKE ACCESS ────────────────────────────────────────────────────────

@@ -525,6 +525,30 @@ async function main() {
       },
     });
 
+    // ── Grant PropertyAccess to PM ───────────────────────────────────────────
+    if (pmUser && adminUser) {
+      await prisma.propertyAccess.create({
+        data: {
+          propertyId: property.id,
+          userId: pmUser.id,
+          grantedBy: adminUser.id,
+          grantedAt: new Date(),
+        },
+      });
+    }
+
+    // ── Grant PropertyAccess to operational user ─────────────────────────────
+    if (opUser && adminUser) {
+      await prisma.propertyAccess.create({
+        data: {
+          propertyId: property.id,
+          userId: opUser.id,
+          grantedBy: adminUser.id,
+          grantedAt: new Date(),
+        },
+      });
+    }
+
     // ── Schedule inspection ──────────────────────────────────────────────────
     let scheduled = null;
     if (opUser && adminUser) {

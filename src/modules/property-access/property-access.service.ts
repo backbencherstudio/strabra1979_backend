@@ -14,6 +14,7 @@ import {
 import { PrismaService } from 'src/prisma/prisma.service';
 import { AccessRequestStatus, ActivityCategory } from 'prisma/generated/enums';
 import { NotificationService } from '../notification/notification.service';
+import { Role } from 'src/common/guard/role/role.enum';
 
 @Injectable()
 export class PropertyAccessService {
@@ -438,25 +439,66 @@ export class PropertyAccessService {
   async getDashboardAccessList(dashboardId: string) {
     const { propertyId } = await this._assertDashboardExists(dashboardId);
 
-    return this.prisma.propertyAccess.findMany({
-      where: {
-        propertyId,
-        revokedAt: null,
-        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            avatar: true,
-            role: true,
+    const [property, accessList] = await Promise.all([
+      this.prisma.property.findUnique({
+        where: { id: propertyId },
+        select: {
+          id: true,
+          address: true,
+          propertyType: true,
+          propertyManager: {
+            select: {
+              id: true,
+              username: true,
+              email: true,
+              avatar: true,
+              role: true,
+            },
           },
         },
+      }),
+      this.prisma.propertyAccess.findMany({
+        where: {
+          propertyId,
+          revokedAt: null,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+          // Exclude the PM from the access array — they're shown separately above
+          user: {
+            role: { in: [Role.AUTHORIZED_VIEWER, Role.OPERATIONAL] },
+          },
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              username: true,
+              email: true,
+              avatar: true,
+              role: true,
+            },
+          },
+        },
+        orderBy: { grantedAt: 'desc' },
+      }),
+    ]);
+
+    return {
+      success: true,
+      message: 'Access list retrieved successfully',
+      data: {
+        propertyId: property.id,
+        address: property.address,
+        propertyType: property.propertyType,
+        dashboardId,
+        propertyManager: property.propertyManager ?? null,
+        accessList: accessList.map((a) => ({
+          accessId: a.id,
+          grantedAt: a.grantedAt,
+          expiresAt: a.expiresAt ?? null,
+          user: a.user,
+        })),
       },
-      orderBy: { grantedAt: 'desc' },
-    });
+    };
   }
 
   // ─── GET PENDING REQUESTS ─────────────────────────────────────────────────
@@ -468,7 +510,7 @@ export class PropertyAccessService {
       where: { propertyId, status: 'PENDING' },
       include: {
         requester: {
-          select: { id: true, name: true, email: true, avatar: true },
+          select: { id: true, username: true, email: true, avatar: true },
         },
       },
       orderBy: { createdAt: 'desc' },

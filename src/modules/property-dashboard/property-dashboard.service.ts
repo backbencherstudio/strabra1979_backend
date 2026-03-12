@@ -26,7 +26,9 @@ export class PropertyDashboardService {
     private readonly notifications: NotificationService,
   ) {}
 
-  // ─── PRIVATE HELPER — resolve dashboard + property in one shot ────────────
+  // ═════════════════════════════════════════════════════════════════════════
+  // PRIVATE HELPERS
+  // ═════════════════════════════════════════════════════════════════════════
 
   private async _assertDashboardExists(dashboardId: string) {
     const dashboard = await this.prisma.propertyDashboard.findUnique({
@@ -42,7 +44,33 @@ export class PropertyDashboardService {
     };
   }
 
-  // ─── 1. CREATE PROPERTY + DASHBOARD ──────────────────────────────────────
+  private async _assertPropertyAccess(
+    propertyId: string,
+    userId: string,
+    role: string,
+  ) {
+    // ADMIN always has full access
+    if (role === Role.ADMIN) return;
+
+    const now = new Date();
+    const access = await this.prisma.propertyAccess.findFirst({
+      where: {
+        propertyId,
+        userId,
+        revokedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      },
+    });
+
+    if (!access)
+      throw new ForbiddenException(
+        'You do not have access to this property dashboard. Contact your admin.',
+      );
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // 1. CREATE PROPERTY + DASHBOARD
+  // ═════════════════════════════════════════════════════════════════════════
 
   async createProperty(dto: CreatePropertyDto, adminId: string) {
     const template = await this.prisma.dashboardTemplate.findFirst({
@@ -70,7 +98,6 @@ export class PropertyDashboardService {
         );
     }
 
-    // ── Validate assignee if nextInspectionDate + assignedTo given ────────
     let assignee = null;
     if (dto.nextInspectionDate && dto.assignedTo) {
       assignee = await this.prisma.user.findFirst({
@@ -112,13 +139,37 @@ export class PropertyDashboardService {
         },
       });
 
-      // ── Schedule inspection if nextInspectionDate + assignedTo provided ──
+      // ── Grant PropertyAccess to PM ─────────────────────────────────────
+      if (pmUser) {
+        await tx.propertyAccess.create({
+          data: {
+            propertyId: property.id,
+            userId: pmUser.id,
+            grantedBy: adminId,
+            grantedAt: new Date(),
+          },
+        });
+      }
+
+      // ── Grant PropertyAccess to assignee ──────────────────────────────
+      if (assignee) {
+        await tx.propertyAccess.create({
+          data: {
+            propertyId: property.id,
+            userId: assignee.id,
+            grantedBy: adminId,
+            grantedAt: new Date(),
+          },
+        });
+      }
+
+      // ── Schedule inspection ────────────────────────────────────────────
       let scheduled = null;
-      if (dto.nextInspectionDate && dto.assignedTo) {
+      if (dto.nextInspectionDate && assignee) {
         scheduled = await tx.scheduledInspection.create({
           data: {
             dashboardId: dashboard.id,
-            assignedTo: dto.assignedTo,
+            assignedTo: assignee.id,
             scheduledAt: new Date(dto.nextInspectionDate),
             createdBy: adminId,
             status: ScheduledInspectionStatus.ASSIGNED,
@@ -145,7 +196,6 @@ export class PropertyDashboardService {
       return { property, dashboard, scheduled };
     });
 
-    // ── Notify PM if assigned ─────────────────────────────────────────────
     if (pmUser) {
       await this.notifications.dashboardAssigned({
         propertyManagerId: pmUser.id,
@@ -156,7 +206,6 @@ export class PropertyDashboardService {
       });
     }
 
-    // ── Notify assignee of scheduled inspection ───────────────────────────
     if (assignee && result.scheduled) {
       await this.notifications.newInspectionAssigned({
         operationalUserId: assignee.id,
@@ -174,7 +223,9 @@ export class PropertyDashboardService {
     };
   }
 
-  // ─── 2. LIST PROPERTIES ───────────────────────────────────────────────────
+  // ═════════════════════════════════════════════════════════════════════════
+  // 2. LIST PROPERTIES
+  // ═════════════════════════════════════════════════════════════════════════
 
   async findAll(
     requestingUserId: string,
@@ -219,6 +270,8 @@ export class PropertyDashboardService {
       }),
     };
 
+    // PM only sees their own properties — no PropertyAccess check needed here
+    // because findAll is scoped by propertyManagerId already
     if (requestingUserRole === Role.PROPERTY_MANAGER) {
       where.propertyManagerId = requestingUserId;
     }
@@ -262,7 +315,7 @@ export class PropertyDashboardService {
           orderBy,
           include: {
             propertyManager: {
-              select: { id: true, name: true, email: true, avatar: true },
+              select: { id: true, username: true, email: true, avatar: true },
             },
             dashboard: dashboardSelect,
           },
@@ -294,26 +347,18 @@ export class PropertyDashboardService {
     };
   }
 
-  // ─── 3. GET SINGLE DASHBOARD — role-aware ─────────────────────────────────
+  // ═════════════════════════════════════════════════════════════════════════
+  // 3. GET SINGLE DASHBOARD
+  // ═════════════════════════════════════════════════════════════════════════
 
   async findOne(dashboardId: string, userId: string, userRole: string) {
     const { propertyId } = await this._assertDashboardExists(dashboardId);
 
-    // Authorized Viewers must have explicit access
-    if (userRole === Role.AUTHORIZED_VIEWER) {
-      const access = await this.prisma.propertyAccess.findFirst({
-        where: { propertyId, userId, revokedAt: null },
-      });
-      if (!access)
-        throw new ForbiddenException(
-          `You do not have access to this dashboard.`,
-        );
-    }
+    // ── Access check for all non-admin roles ──────────────────────────────
+    await this._assertPropertyAccess(propertyId, userId, userRole);
 
     return this.findOneByDashboard(dashboardId);
   }
-
-  // ─── 3b. GET BY DASHBOARD ID (internal — used by findOne + other modules) ─
 
   async findOneByDashboard(dashboardId: string) {
     const dashboard = await this.prisma.propertyDashboard.findUnique({
@@ -350,7 +395,9 @@ export class PropertyDashboardService {
     };
   }
 
-  // ─── 4. UPDATE PROPERTY DETAILS ───────────────────────────────────────────
+  // ═════════════════════════════════════════════════════════════════════════
+  // 4. UPDATE PROPERTY DETAILS
+  // ═════════════════════════════════════════════════════════════════════════
 
   async updateProperty(
     dashboardId: string,
@@ -358,6 +405,9 @@ export class PropertyDashboardService {
     adminId: string,
   ) {
     const { propertyId } = await this._assertDashboardExists(dashboardId);
+
+    // ── Access check (Admin only route but guard it anyway) ───────────────
+    await this._assertPropertyAccess(propertyId, adminId, Role.ADMIN);
 
     const updated = await this.prisma.property.update({
       where: { id: propertyId },
@@ -406,17 +456,22 @@ export class PropertyDashboardService {
     };
   }
 
-  // ─── 5. SCHEDULE AN INSPECTION ────────────────────────────────────────────
+  // ═════════════════════════════════════════════════════════════════════════
+  // 5. SCHEDULE AN INSPECTION
+  // ═════════════════════════════════════════════════════════════════════════
 
   async scheduleInspection(
     dashboardId: string,
     dto: ScheduleInspectionDto,
-    adminId: string,
+    requesterId: string,
+    requesterRole: string,
   ) {
     const { propertyId, property } =
       await this._assertDashboardExists(dashboardId);
 
-    // ── Validate assignee is OPERATIONAL role ──────────────────────────────
+    // ── Access check ──────────────────────────────────────────────────────
+    await this._assertPropertyAccess(propertyId, requesterId, requesterRole);
+
     const assignee = await this.prisma.user.findFirst({
       where: { id: dto.assignedTo, role: Role.OPERATIONAL, isDeleted: false },
     });
@@ -426,18 +481,31 @@ export class PropertyDashboardService {
     if (new Date(dto.scheduledAt) <= new Date())
       throw new BadRequestException('scheduledAt must be a future date/time.');
 
-    // ── Create scheduled inspection ────────────────────────────────────────
     const scheduled = await this.prisma.scheduledInspection.create({
       data: {
         dashboardId,
         assignedTo: dto.assignedTo,
         scheduledAt: new Date(dto.scheduledAt),
-        createdBy: adminId,
+        createdBy: requesterId,
         status: ScheduledInspectionStatus.ASSIGNED,
       },
     });
 
-    // ── Also update property.nextInspectionDate for the card display ───────
+    // ── Grant PropertyAccess to assignee if not already ───────────────────
+    await this.prisma.propertyAccess.upsert({
+      where: { propertyId_userId: { propertyId, userId: assignee.id } },
+      create: {
+        propertyId,
+        userId: assignee.id,
+        grantedBy: requesterId,
+        grantedAt: new Date(),
+      },
+      update: {
+        revokedAt: null,
+        revokedBy: null,
+      },
+    });
+
     await this.prisma.property.update({
       where: { id: propertyId },
       data: { nextInspectionDate: new Date(dto.scheduledAt) },
@@ -453,7 +521,7 @@ export class PropertyDashboardService {
 
     await this.notifications.newInspectionAssigned({
       operationalUserId: assignee.id,
-      assignedById: adminId,
+      assignedById: requesterId,
       propertyId,
       propertyName: property.name,
       dashboardId,
@@ -466,7 +534,9 @@ export class PropertyDashboardService {
     };
   }
 
-  // ─── 6. ASSIGN USER ───────────────────────────────────────────────────────
+  // ═════════════════════════════════════════════════════════════════════════
+  // 6. ASSIGN USER
+  // ═════════════════════════════════════════════════════════════════════════
 
   async assignPropertyUser(
     dashboardId: string,
@@ -489,6 +559,23 @@ export class PropertyDashboardService {
       const updated = await this.prisma.property.update({
         where: { id: propertyId },
         data: { propertyManagerId: dto.userId },
+      });
+
+      // ── Also upsert PropertyAccess for PM ─────────────────────────────
+      await this.prisma.propertyAccess.upsert({
+        where: { propertyId_userId: { propertyId, userId: dto.userId } },
+        create: {
+          propertyId,
+          userId: dto.userId,
+          grantedBy: adminId,
+          grantedAt: new Date(),
+        },
+        update: {
+          revokedAt: null,
+          revokedBy: null,
+          grantedBy: adminId,
+          grantedAt: new Date(),
+        },
       });
 
       await this.prisma.activityLog.create({
@@ -514,7 +601,7 @@ export class PropertyDashboardService {
       };
     }
 
-    // ── Other roles (AV, Operational etc.) ────────────────────────────────
+    // ── Other roles (AV, Operational) ─────────────────────────────────────
     const access = await this.prisma.propertyAccess.upsert({
       where: { propertyId_userId: { propertyId, userId: dto.userId } },
       create: {
@@ -567,10 +654,19 @@ export class PropertyDashboardService {
     };
   }
 
-  // ─── 7. GET ACCESS LIST ───────────────────────────────────────────────────
+  // ═════════════════════════════════════════════════════════════════════════
+  // 7. GET ACCESS LIST
+  // ═════════════════════════════════════════════════════════════════════════
 
-  async getPropertyAccess(dashboardId: string) {
+  async getPropertyAccess(
+    dashboardId: string,
+    requesterId: string,
+    requesterRole: string,
+  ) {
     const { propertyId } = await this._assertDashboardExists(dashboardId);
+
+    // ── Access check ──────────────────────────────────────────────────────
+    await this._assertPropertyAccess(propertyId, requesterId, requesterRole);
 
     const [property, accesses] = await Promise.all([
       this.prisma.property.findUnique({
@@ -624,23 +720,29 @@ export class PropertyDashboardService {
     };
   }
 
-  // ─── 8. SET ACCESS EXPIRATION ─────────────────────────────────────────────
+  // ═════════════════════════════════════════════════════════════════════════
+  // 8. SET ACCESS EXPIRATION
+  // ═════════════════════════════════════════════════════════════════════════
 
   async setAccessExpiration(
     dashboardId: string,
     dto: SetAccessExpirationDto,
     adminId: string,
   ) {
-    await this._assertDashboardExists(dashboardId);
+    const { propertyId } = await this._assertDashboardExists(dashboardId);
+
+    // ── Access check (Admin only but guard it anyway) ─────────────────────
+    await this._assertPropertyAccess(propertyId, adminId, Role.ADMIN);
 
     const user = await this.prisma.user.findFirst({
       where: { id: dto.userId, isDeleted: false },
     });
     if (!user) throw new NotFoundException('User not found.');
 
-    const updatedUser = await this.prisma.user.update({
-      where: { id: dto.userId },
-      data: { access_expires_at: new Date(dto.accessExpiresAt) },
+    // ── Update PropertyAccess row expiry (not User.access_expires_at) ─────
+    const updated = await this.prisma.propertyAccess.update({
+      where: { propertyId_userId: { propertyId, userId: dto.userId } },
+      data: { expiresAt: new Date(dto.accessExpiresAt) },
     });
 
     await this.prisma.activityLog.create({
@@ -654,7 +756,7 @@ export class PropertyDashboardService {
     return {
       success: true,
       message: 'Access expiration updated.',
-      user: updatedUser,
+      data: updated,
     };
   }
 }
