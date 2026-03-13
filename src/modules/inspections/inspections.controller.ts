@@ -10,6 +10,8 @@ import {
   UseInterceptors,
   UploadedFiles,
   Query,
+  Delete,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -23,7 +25,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { FilesInterceptor } from '@nestjs/platform-express';
-import { SubmitInspectionDto } from './dto/inspection.dto';
+import { SubmitInspectionDto, UpdateInspectionDto } from './dto/inspection.dto';
 import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/common/guard/role/roles.guard';
 import { Roles } from 'src/common/guard/role/roles.decorator';
@@ -149,6 +151,66 @@ export class InspectionController {
     );
   }
 
+  @Patch(':inspectionId')
+  @Roles(Role.ADMIN, Role.OPERATIONAL)
+  @UseInterceptors(FilesInterceptor('files', 50))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Update an inspection before publishing (Admin only)',
+    description:
+      'Allows admin to modify inspection data before publishing.\n\n' +
+      'Only works on inspections in `COMPLETE` status (not yet published).\n\n' +
+      'Sends everything as multipart/form-data — same format as submit.\n\n' +
+      '**New files are appended. Existing media files are NOT deleted unless `removeMediaFileIds` is provided.**',
+  })
+  @ApiParam({ name: 'inspectionId', description: 'CUID of the Inspection' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        data: {
+          type: 'string',
+          description: 'JSON string of fields to update',
+          example: JSON.stringify({
+            headerData: { inspectionTitle: 'Updated Title' },
+            scores: { surfaceCondition: { score: 24, notes: 'Updated notes' } },
+            repairItems: [
+              { title: 'Leak Repair', status: 'Urgent', description: 'Fixed' },
+            ],
+            nteValue: 8000,
+            additionalComments: 'Updated comments',
+            mediaFieldKeys: ['mediaFiles'],
+            removeMediaFileIds: ['cuid1', 'cuid2'],
+          }),
+        },
+        files: {
+          type: 'array',
+          items: { type: 'string', format: 'binary' },
+        },
+      },
+    },
+  })
+  @ApiOkResponse({ description: 'Inspection updated successfully.' })
+  updateInspection(
+    @Param('inspectionId') inspectionId: string,
+    @UploadedFiles() files: Express.Multer.File[],
+    @Body('data') rawData: string,
+    @Req() req: Request,
+  ) {
+    let dto: UpdateInspectionDto;
+    try {
+      dto = JSON.parse(rawData);
+    } catch {
+      throw new BadRequestException('Invalid JSON in "data" field.');
+    }
+    return this.service.updateInspection(
+      inspectionId,
+      req.user.userId,
+      dto,
+      files ?? [],
+    );
+  }
+
   // ═════════════════════════════════════════════════════════════════════════
   // INSPECTION QUERIES
   // ═════════════════════════════════════════════════════════════════════════
@@ -220,7 +282,7 @@ export class InspectionController {
   // ═════════════════════════════════════════════════════════════════════════
 
   @Get('scheduled/all')
-  @Roles(Role.ADMIN, Role.PROPERTY_MANAGER)
+  @Roles(Role.ADMIN, Role.PROPERTY_MANAGER, Role.OPERATIONAL)
   @ApiOperation({
     summary: 'Get all scheduled inspections (Admin / PM)',
     description:
@@ -310,5 +372,29 @@ export class InspectionController {
       scheduledInspectionId,
       req.user?.userId,
     );
+  }
+
+  @Delete(':inspectionId')
+  @Roles(Role.ADMIN)
+  @ApiOperation({
+    summary:
+      'Delete an inspection and its linked scheduled inspection (Admin only)',
+    description:
+      'Permanently deletes the Inspection record along with:\n\n' +
+      '- All associated `MediaFile` records\n' +
+      '- The linked `ScheduledInspection` record\n' +
+      '- All `InspectionFolderItem` references\n\n' +
+      '⚠️ This action is irreversible.',
+  })
+  @ApiParam({
+    name: 'inspectionId',
+    description: 'CUID of the Inspection to delete',
+  })
+  @ApiOkResponse({ description: 'Inspection deleted successfully.' })
+  deleteInspection(
+    @Param('inspectionId') inspectionId: string,
+    @Req() req: Request,
+  ) {
+    return this.service.deleteInspection(inspectionId, req.user.userId);
   }
 }

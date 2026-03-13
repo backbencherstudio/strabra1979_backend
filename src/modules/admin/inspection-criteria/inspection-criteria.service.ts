@@ -87,6 +87,12 @@ export class InspectionCriteriaService {
   // ─────────────────────────────────────────────────────────────────────────
 
   async create(dto: CreateInspectionCriteriaDto) {
+    const existing = await this.prisma.inspectionCriteria.findFirst();
+    if (existing)
+      throw new BadRequestException(
+        'Inspection criteria already exists. Use the update endpoint to modify it.',
+      );
+
     this._assertUniqueKeys(
       dto.headerFields.map((f) => f.key),
       'headerFields',

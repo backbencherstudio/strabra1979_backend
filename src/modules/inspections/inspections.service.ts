@@ -5,7 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { SubmitInspectionDto } from './dto/inspection.dto';
+import { SubmitInspectionDto, UpdateInspectionDto } from './dto/inspection.dto';
 import {
   ActivityCategory,
   ScheduledInspectionStatus,
@@ -334,6 +334,187 @@ export class InspectionService {
     };
   }
 
+  // ── Service method ────────────────────────────────────────────────────────────
+
+  async updateInspection(
+    inspectionId: string,
+    adminId: string,
+    dto: UpdateInspectionDto,
+    files: Express.Multer.File[],
+  ) {
+    // ── Find inspection ────────────────────────────────────────────────────
+    const inspection = await this.prisma.inspection.findUnique({
+      where: { id: inspectionId },
+      include: {
+        scheduledInspection: true,
+        mediaFiles: true,
+        dashboard: {
+          include: {
+            property: {
+              include: { activeTemplate: { include: { criteria: true } } },
+            },
+          },
+        },
+      },
+    });
+
+    if (!inspection)
+      throw new NotFoundException(`Inspection "${inspectionId}" not found.`);
+
+    // ── Only allow editing COMPLETE inspections (not yet published) ────────
+    if (
+      inspection.scheduledInspection?.status !==
+      ScheduledInspectionStatus.COMPLETE
+    )
+      throw new BadRequestException(
+        `Only COMPLETE inspections can be edited. Current status: ${inspection.scheduledInspection?.status ?? 'unknown'}.`,
+      );
+
+    // ── Validate media field keys if new files are being added ─────────────
+    const criteria = inspection.dashboard.property?.activeTemplate?.criteria;
+    const mediaSlots = (criteria?.mediaFields ??
+      []) as unknown as MediaFieldSlot[];
+
+    if (dto.mediaFieldKeys && dto.mediaFieldKeys.length !== files.length)
+      throw new BadRequestException(
+        `mediaFieldKeys length (${dto.mediaFieldKeys.length}) must match files length (${files.length}).`,
+      );
+
+    const validSlotKeys = mediaSlots.map((s) => s.key);
+    for (const key of dto.mediaFieldKeys ?? []) {
+      if (!validSlotKeys.includes(key))
+        throw new BadRequestException(
+          `mediaFieldKey "${key}" does not exist in criteria.mediaFields.`,
+        );
+    }
+
+    // ── Recompute score + health if scores changed ─────────────────────────
+    let overallScore = inspection.overallScore;
+    let healthLabel = inspection.healthLabel;
+    let remainingLife = inspection.remainingLife;
+
+    if (dto.scores && criteria) {
+      const categories =
+        criteria.scoringCategories as unknown as ScoringCategory[];
+      const thresholds =
+        criteria.healthThresholdConfig as unknown as HealthThreshold;
+
+      overallScore = categories.reduce(
+        (sum, cat) =>
+          sum +
+          (dto.scores?.[cat.key]?.score ??
+            (inspection.scores as any)?.[cat.key]?.score ??
+            0),
+        0,
+      );
+
+      healthLabel = 'Poor';
+      remainingLife = `${thresholds.poor.remainingLifeMinYears}-${thresholds.poor.remainingLifeMaxYears} Years`;
+
+      if (overallScore >= thresholds.good.minScore) {
+        healthLabel = 'Good';
+        remainingLife = `${thresholds.good.remainingLifeMinYears}-${thresholds.good.remainingLifeMaxYears} Years`;
+      } else if (overallScore >= thresholds.fair.minScore) {
+        healthLabel = 'Fair';
+        remainingLife = `${thresholds.fair.remainingLifeMinYears}-${thresholds.fair.remainingLifeMaxYears} Years`;
+      }
+    }
+
+    const repairItems = dto.repairItems
+      ? dto.repairItems.map((item, i) => ({
+          id: `repair_${Date.now()}_${i}`,
+          title: item.title,
+          status: item.status,
+          description: item.description ?? '',
+        }))
+      : undefined;
+
+    // ── Remove requested media files ───────────────────────────────────────
+    if (dto.removeMediaFileIds?.length) {
+      await this.prisma.mediaFile.deleteMany({
+        where: {
+          id: { in: dto.removeMediaFileIds },
+          inspectionId: inspectionId, // safety — only delete files belonging to this inspection
+        },
+      });
+    }
+
+    // ── Upload new files ───────────────────────────────────────────────────
+    const newMediaFiles = [];
+
+    for (const [mediaFieldKey, embedUrl] of Object.entries(
+      dto.embedFields ?? {},
+    )) {
+      const slot = mediaSlots.find((s) => s.key === mediaFieldKey);
+      if (!slot || slot.type !== 'embed') continue;
+
+      const mf = await this.prisma.mediaFile.create({
+        data: {
+          inspectionId: inspectionId,
+          fileName: mediaFieldKey,
+          fileType: 'EMBED',
+          url: String(embedUrl),
+          size: null,
+          mediaFieldKey,
+          uploadedAt: new Date(),
+        },
+      });
+      newMediaFiles.push(mf);
+    }
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const mediaFieldKey = dto.mediaFieldKeys?.[i] ?? 'mediaFiles';
+      const url = `https://your-storage.example.com/inspections/${inspectionId}/${Date.now()}_${file.originalname}`;
+
+      const mf = await this.prisma.mediaFile.create({
+        data: {
+          inspectionId: inspectionId,
+          fileName: file.originalname,
+          fileType: this._resolveFileType(file.mimetype),
+          url,
+          size: file.size,
+          mediaFieldKey,
+          uploadedAt: new Date(),
+        },
+      });
+      newMediaFiles.push(mf);
+    }
+
+    // ── Update inspection row ──────────────────────────────────────────────
+    const updated = await this.prisma.inspection.update({
+      where: { id: inspectionId },
+      data: {
+        ...(dto.headerData && { headerData: dto.headerData }),
+        ...(dto.scores && { scores: dto.scores }),
+        ...(repairItems && { repairItems: repairItems }),
+        ...(dto.nteValue !== undefined && { nteValue: dto.nteValue }),
+        ...(dto.additionalComments !== undefined && {
+          additionalComments: dto.additionalComments,
+        }),
+        ...(dto.scores && { overallScore, healthLabel, remainingLife }),
+      },
+      include: { mediaFiles: true },
+    });
+
+    // ── Activity log ───────────────────────────────────────────────────────
+    const propertyName =
+      inspection.dashboard.property?.name ?? 'Unknown Property';
+    await this.prisma.activityLog.create({
+      data: {
+        category: ActivityCategory.PROPERTY_DASHBOARD_UPDATE,
+        actor_role: 'ADMIN',
+        message: `Inspection report for ${propertyName} was updated before publishing`,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Inspection updated successfully',
+      data: updated,
+    };
+  }
+
   // ═════════════════════════════════════════════════════════════════════════
   // INSPECTION QUERIES
   // ═════════════════════════════════════════════════════════════════════════
@@ -593,37 +774,80 @@ export class InspectionService {
           },
         },
         assignee: {
-          select: { id: true, name: true, email: true, avatar: true },
+          select: { id: true, username: true, email: true, avatar: true },
         },
-        creator: { select: { id: true, name: true } },
+        creator: { select: { id: true, username: true } },
+        inspection: {
+          include: {
+            mediaFiles: {
+              orderBy: { uploadedAt: 'asc' },
+            },
+            inspector: {
+              select: { id: true, username: true, email: true, avatar: true },
+            },
+          },
+        },
       },
     });
 
     if (!scheduled)
       throw new NotFoundException('Scheduled inspection not found.');
 
-    // ── Access check ──────────────────────────────────────────────────────
     await this._assertPropertyAccess(
       scheduled.dashboard.property.id,
       userId,
       role,
     );
 
+    // ── Group media files by slot key ──────────────────────────────────────
+    const mediaBySlot: Record<string, any[]> = {};
+    for (const mf of scheduled.inspection?.mediaFiles ?? []) {
+      const key = mf.mediaFieldKey ?? 'mediaFiles';
+      mediaBySlot[key] ??= [];
+      mediaBySlot[key].push(mf);
+    }
+
     return {
       success: true,
       message: 'Scheduled inspection retrieved',
       data: {
+        // ── Schedule info ────────────────────────────────────────────────
         id: scheduled.id,
         status: scheduled.status,
         scheduledAt: scheduled.scheduledAt,
         dashboardId: scheduled.dashboardId,
-        inspectionId: scheduled.inspectionId ?? null,
-        propertyName: scheduled.dashboard.property.name,
-        propertyType: scheduled.dashboard.property.propertyType,
-        address: scheduled.dashboard.property.address,
+        createdAt: scheduled.createdAt,
         assignee: scheduled.assignee,
         createdBy: scheduled.creator,
-        createdAt: scheduled.createdAt,
+
+        // ── Property info ────────────────────────────────────────────────
+        property: {
+          id: scheduled.dashboard.property.id,
+          name: scheduled.dashboard.property.name,
+          address: scheduled.dashboard.property.address,
+          propertyType: scheduled.dashboard.property.propertyType,
+        },
+
+        // ── Filled inspection (null if not yet submitted) ─────────────────
+        inspection: scheduled.inspection
+          ? {
+              id: scheduled.inspection.id,
+              inspectedAt: scheduled.inspection.inspectedAt,
+              overallScore: scheduled.inspection.overallScore,
+              healthLabel: scheduled.inspection.healthLabel,
+              remainingLife: scheduled.inspection.remainingLife,
+              headerData: scheduled.inspection.headerData,
+              scores: scheduled.inspection.scores,
+              repairItems: scheduled.inspection.repairItems,
+              nteValue: scheduled.inspection.nteValue,
+              additionalComments: scheduled.inspection.additionalComments,
+              inspector: scheduled.inspection.inspector,
+              // ── Media grouped by slot ──────────────────────────────────
+              media: mediaBySlot,
+              // ── Raw media list (if frontend prefers flat) ──────────────
+              mediaFiles: scheduled.inspection.mediaFiles,
+            }
+          : null,
       },
     };
   }
@@ -669,6 +893,75 @@ export class InspectionService {
       success: true,
       message: 'Inspection started',
       data: { scheduledInspectionId, dashboardId: scheduled.dashboardId },
+    };
+  }
+
+  // ── In inspections.service.ts — add these two methods ────────────────────────
+
+  async deleteInspection(inspectionId: string, adminId: string) {
+    // ── Find inspection with all related data ─────────────────────────────
+    const inspection = await this.prisma.inspection.findUnique({
+      where: { id: inspectionId },
+      include: {
+        scheduledInspection: true,
+        mediaFiles: true,
+        dashboard: {
+          include: {
+            property: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
+
+    if (!inspection)
+      throw new NotFoundException(`Inspection "${inspectionId}" not found.`);
+
+    const propertyName =
+      inspection.dashboard.property?.name ?? 'Unknown Property';
+
+    // ── Delete in correct order (respect FK constraints) ──────────────────
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Remove folder item references
+      await tx.inspectionFolderItem.deleteMany({
+        where: { inspectionId },
+      });
+
+      // 2. Remove media files
+      await tx.mediaFile.deleteMany({
+        where: { inspectionId },
+      });
+
+      // 3. Unlink scheduled inspection (set inspectionId null) then delete
+      if (inspection.scheduledInspection) {
+        await tx.scheduledInspection.delete({
+          where: { id: inspection.scheduledInspection.id },
+        });
+      }
+
+      // 4. Delete the inspection itself
+      await tx.inspection.delete({
+        where: { id: inspectionId },
+      });
+    });
+
+    // ── Activity log ───────────────────────────────────────────────────────
+    await this.prisma.activityLog.create({
+      data: {
+        category: ActivityCategory.PROPERTY_DASHBOARD_UPDATE,
+        actor_role: 'ADMIN',
+        message: `Inspection report for ${propertyName} has been deleted`,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Inspection and all related records deleted successfully',
+      data: {
+        deletedInspectionId: inspectionId,
+        deletedScheduledInspectionId:
+          inspection.scheduledInspection?.id ?? null,
+        deletedMediaFilesCount: inspection.mediaFiles.length,
+      },
     };
   }
 
