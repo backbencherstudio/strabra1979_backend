@@ -38,16 +38,16 @@ export class InspectionCriteriaController {
   // ─────────────────────────────────────────────────────────────────────────
   // CRITERIA — CRUD
   // ─────────────────────────────────────────────────────────────────────────
-
   @Post()
   @ApiOperation({
     summary: 'Create inspection criteria',
     description:
-      'Creates a new InspectionCriteria record with all 7 Json columns: ' +
-      'headerFields, scoringCategories, mediaFields, nteConfig, ' +
-      'additionalNotesConfig, repairPlanningConfig, healthThresholdConfig. ' +
-      'All initial fields/categories/media become isSystem=true and cannot be deleted later. ' +
-      'Keys must be unique within each array. Total scoringCategories maxPoints must not exceed 100.',
+      '⚠️ **Only one criteria record is allowed system-wide.** This endpoint will fail if criteria already exists — use `PATCH /inspection-criteria/:id` to update it.\n\n' +
+      'Creates an InspectionCriteria record with all 7 JSON columns: ' +
+      '`headerFields`, `scoringCategories`, `mediaFields`, `nteConfig`, ' +
+      '`additionalNotesConfig`, `repairPlanningConfig`, `healthThresholdConfig`.\n\n' +
+      'All initial fields become `isSystem: true` and cannot be deleted later. ' +
+      'Keys must be unique within each array. Total `scoringCategories.maxPoints` must not exceed 100.',
   })
   create(@Body() dto: CreateInspectionCriteriaDto) {
     return this.service.create(dto);
