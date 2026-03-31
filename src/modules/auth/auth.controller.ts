@@ -39,7 +39,7 @@ export class AuthController {
   constructor(private authService: AuthService) {}
 
   @ApiOperation({ summary: 'Get user details' })
-  @ApiBearerAuth()
+  @ApiBearerAuth(SWAGGER_AUTH.admin)
   @UseGuards(JwtAuthGuard)
   @Get('me')
   async me(@Req() req: Request) {
