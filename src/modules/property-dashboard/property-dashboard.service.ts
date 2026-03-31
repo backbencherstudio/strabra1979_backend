@@ -18,6 +18,7 @@ import {
   ScheduledInspectionStatus,
 } from 'prisma/generated/enums';
 import { NotificationService } from '../notification/notification.service';
+import appConfig from 'src/config/app.config';
 
 @Injectable()
 export class PropertyDashboardService {
@@ -367,7 +368,7 @@ export class PropertyDashboardService {
         property: {
           include: {
             propertyManager: {
-              select: { id: true, name: true, email: true, avatar: true },
+              select: { id: true, username: true, email: true, avatar: true },
             },
             activeTemplate: true,
           },
@@ -391,7 +392,17 @@ export class PropertyDashboardService {
     return {
       success: true,
       message: 'Dashboard retrieved successfully',
-      data: dashboard,
+      data: {
+        ...dashboard,
+        inspections: dashboard.inspections.map((inspection) => ({
+          ...inspection,
+          mediaFiles: inspection.mediaFiles.map((file) => ({
+            ...file,
+            url:
+              file.fileType === 'EMBED' ? file.url : this._resolveUrl(file.url),
+          })),
+        })),
+      },
     };
   }
 
@@ -582,7 +593,7 @@ export class PropertyDashboardService {
         data: {
           category: ActivityCategory.USER_ACCESS,
           actor_role: Role.PROPERTY_MANAGER,
-          message: `${user.name} was assigned to ${updated.name} dashboard`,
+          message: `${user.username} was assigned to ${updated.name} dashboard`,
         },
       });
 
@@ -633,13 +644,13 @@ export class PropertyDashboardService {
 
     const admin = await this.prisma.user.findUnique({
       where: { id: adminId },
-      select: { name: true },
+      select: { username: true },
     });
 
     await this.notifications.dashboardShared({
       userId: user.id,
       sharedById: adminId,
-      sharerName: admin?.name ?? 'Admin',
+      sharerName: admin?.username ?? 'Admin',
       propertyId,
       propertyName: property.name,
       dashboardId,
@@ -692,7 +703,7 @@ export class PropertyDashboardService {
           user: {
             select: {
               id: true,
-              name: true,
+              username: true,
               email: true,
               avatar: true,
               role: true,
@@ -749,7 +760,7 @@ export class PropertyDashboardService {
       data: {
         category: ActivityCategory.USER_ACCESS,
         actor_role: Role.ADMIN,
-        message: `${user.name} access expiration set to ${new Date(dto.accessExpiresAt).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`,
+        message: `${user.username} access expiration set to ${new Date(dto.accessExpiresAt).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`,
       },
     });
 
@@ -758,5 +769,10 @@ export class PropertyDashboardService {
       message: 'Access expiration updated.',
       data: updated,
     };
+  }
+
+  private _resolveUrl(path: string): string {
+    const appUrl = appConfig().app.url;
+    return `${appUrl}/public/storage${path}`;
   }
 }

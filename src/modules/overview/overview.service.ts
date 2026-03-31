@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Role, ScheduledInspectionStatus } from 'prisma/generated/enums';
+import { ChartPeriod, OverviewQueryDto } from './overview.enum';
 
 @Injectable()
 export class OverviewService {
@@ -10,10 +11,10 @@ export class OverviewService {
   // ROUTER
   // ═════════════════════════════════════════════════════════════════════════
 
-  async getOverview(userId: string, role: Role) {
+  async getOverview(userId: string, role: Role, query: OverviewQueryDto = {}) {
     switch (role) {
       case Role.ADMIN:
-        return this._getAdminOverview();
+        return this._getAdminOverview(query);
       case Role.PROPERTY_MANAGER:
         return this._getPropertyManagerOverview(userId);
       case Role.AUTHORIZED_VIEWER:
@@ -27,11 +28,30 @@ export class OverviewService {
   // ADMIN
   // ═════════════════════════════════════════════════════════════════════════
 
-  private async _getAdminOverview() {
+  private async _getAdminOverview(query: OverviewQueryDto) {
     const now = new Date();
     const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+
+    // ── Resolve date-range filter for scheduled inspections ────────────────
+    let dateFilter: { gte?: Date; lte?: Date } | undefined;
+    if (query.date) {
+      const d = new Date(query.date);
+      if (!isNaN(d.getTime())) {
+        const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        const dayEnd = new Date(
+          d.getFullYear(),
+          d.getMonth(),
+          d.getDate(),
+          23,
+          59,
+          59,
+          999,
+        );
+        dateFilter = { gte: dayStart, lte: dayEnd };
+      }
+    }
 
     // ── Stats ──────────────────────────────────────────────────────────────
     const [
@@ -43,9 +63,7 @@ export class OverviewService {
       usersThisMonth,
       pendingInspections,
     ] = await this.prisma.$transaction([
-      this.prisma.property.count({
-        where: { status: 'ACTIVE' },
-      }),
+      this.prisma.property.count({ where: { status: 'ACTIVE' } }),
       this.prisma.property.count({
         where: { createdAt: { gte: lastMonth, lte: lastMonthEnd } },
       }),
@@ -94,19 +112,10 @@ export class OverviewService {
           )
         : null;
 
-    // ── Chart — monthly property counts for current year ───────────────────
-    const chartData = await Promise.all(
-      Array.from({ length: 12 }, async (_, i) => {
-        const monthStart = new Date(now.getFullYear(), i, 1);
-        const monthEnd = new Date(now.getFullYear(), i + 1, 0);
-        const count = await this.prisma.property.count({
-          where: { createdAt: { gte: monthStart, lte: monthEnd } },
-        });
-        return {
-          month: monthStart.toLocaleString('en-US', { month: 'short' }),
-          count,
-        };
-      }),
+    // ── Chart ──────────────────────────────────────────────────────────────
+    const chartData = await this._buildChartData(
+      now,
+      query.chartPeriod ?? 'yearly',
     );
 
     // ── Scheduled inspection tab counts ────────────────────────────────────
@@ -127,9 +136,15 @@ export class OverviewService {
       ]);
 
     // ── Recent scheduled inspections ───────────────────────────────────────
+    const takeCount = query.take && query.take > 0 ? query.take : 5;
+
     const recentScheduled = await this.prisma.scheduledInspection.findMany({
-      take: 5,
+      take: takeCount,
       orderBy: { scheduledAt: 'desc' },
+      where: {
+        ...(dateFilter ? { scheduledAt: dateFilter } : {}),
+        ...(query.status ? { status: query.status } : {}),
+      },
       include: {
         dashboard: {
           include: {
@@ -190,10 +205,7 @@ export class OverviewService {
           usersChangePercent,
           pendingInspectionsThisMonth: pendingInspections,
         },
-        chart: {
-          year: now.getFullYear(),
-          data: chartData,
-        },
+        chart: chartData,
         scheduledInspections: {
           tabs: {
             all: dueCount + inProgressCount + completeCount + assignedCount,
@@ -201,6 +213,11 @@ export class OverviewService {
             inProgress: inProgressCount,
             complete: completeCount,
             assigned: assignedCount,
+          },
+          appliedFilters: {
+            date: query.date ?? null,
+            status: query.status ?? null,
+            take: takeCount,
           },
           recent: recentScheduled.map((s) => ({
             id: s.id,
@@ -238,6 +255,120 @@ export class OverviewService {
   }
 
   // ═════════════════════════════════════════════════════════════════════════
+  // CHART BUILDER
+  // ═════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Builds property count chart data at three granularities:
+   *
+   *  yearly  — one bucket per month of the current year  (Jan … Dec)
+   *  monthly — one bucket per day of the current month   (1 … 28/30/31)
+   *  daily   — one bucket per hour of today              (12 AM … 11 PM)
+   *
+   * Each bucket counts properties whose `createdAt` falls within that window.
+   * The label field drives the x-axis on the frontend.
+   */
+  private async _buildChartData(now: Date, period: ChartPeriod) {
+    switch (period) {
+      // ── Yearly: 12 monthly buckets ───────────────────────────────────────
+      case 'yearly': {
+        const buckets = await Promise.all(
+          Array.from({ length: 12 }, async (_, i) => {
+            const start = new Date(now.getFullYear(), i, 1);
+            const end = new Date(now.getFullYear(), i + 1, 0, 23, 59, 59, 999);
+            const count = await this.prisma.property.count({
+              where: { createdAt: { gte: start, lte: end } },
+            });
+            return {
+              label: start.toLocaleString('en-US', { month: 'short' }), // Jan … Dec
+              count,
+            };
+          }),
+        );
+        return { period: 'yearly', year: now.getFullYear(), data: buckets };
+      }
+
+      // ── Monthly: one bucket per day of the current month ────────────────
+      case 'monthly': {
+        const daysInMonth = new Date(
+          now.getFullYear(),
+          now.getMonth() + 1,
+          0,
+        ).getDate();
+
+        const buckets = await Promise.all(
+          Array.from({ length: daysInMonth }, async (_, i) => {
+            const day = i + 1;
+            const start = new Date(now.getFullYear(), now.getMonth(), day);
+            const end = new Date(
+              now.getFullYear(),
+              now.getMonth(),
+              day,
+              23,
+              59,
+              59,
+              999,
+            );
+            const count = await this.prisma.property.count({
+              where: { createdAt: { gte: start, lte: end } },
+            });
+            return {
+              label: String(day), // "1" … "31"
+              count,
+            };
+          }),
+        );
+        return {
+          period: 'monthly',
+          year: now.getFullYear(),
+          month: now.toLocaleString('en-US', { month: 'long' }),
+          data: buckets,
+        };
+      }
+
+      // ── Daily: one bucket per hour of today ──────────────────────────────
+      case 'daily': {
+        const buckets = await Promise.all(
+          Array.from({ length: 24 }, async (_, hour) => {
+            const start = new Date(
+              now.getFullYear(),
+              now.getMonth(),
+              now.getDate(),
+              hour,
+              0,
+              0,
+              0,
+            );
+            const end = new Date(
+              now.getFullYear(),
+              now.getMonth(),
+              now.getDate(),
+              hour,
+              59,
+              59,
+              999,
+            );
+            const count = await this.prisma.property.count({
+              where: { createdAt: { gte: start, lte: end } },
+            });
+            // Format as "12 AM", "1 AM" … "11 PM"
+            const label = start.toLocaleString('en-US', {
+              hour: 'numeric',
+              hour12: true,
+            });
+            return { label, count };
+          }),
+        );
+        return {
+          period: 'daily',
+          date: now.toISOString().split('T')[0],
+          data: buckets,
+        };
+      }
+    }
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
   // PROPERTY MANAGER
   // ═════════════════════════════════════════════════════════════════════════
 
@@ -264,7 +395,6 @@ export class OverviewService {
       },
     });
 
-    // ── Avg roof health ────────────────────────────────────────────────────
     const scores = properties
       .map((p) => p.dashboard?.inspections?.[0]?.overallScore)
       .filter((s): s is number => s !== null && s !== undefined);
@@ -274,14 +404,12 @@ export class OverviewService {
         ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
         : null;
 
-    // ── Urgent repairs ─────────────────────────────────────────────────────
     let urgentRepairs = 0;
     for (const p of properties) {
       const items = (p.dashboard?.inspections?.[0]?.repairItems ?? []) as any[];
       urgentRepairs += items.filter((r) => r.status === 'Urgent').length;
     }
 
-    // ── Recent inspection reports ──────────────────────────────────────────
     const dashboardIds = properties
       .map((p) => p.dashboard?.id)
       .filter(Boolean) as string[];
@@ -421,7 +549,6 @@ export class OverviewService {
     );
     const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    // ── Auto-mark overdue ──────────────────────────────────────────────────
     await this.prisma.scheduledInspection.updateMany({
       where: {
         assignedTo: userId,
@@ -431,7 +558,6 @@ export class OverviewService {
       data: { status: ScheduledInspectionStatus.DUE },
     });
 
-    // ── Stats ──────────────────────────────────────────────────────────────
     const [todayCount, totalAssignedThisMonth, completedThisMonth] =
       await this.prisma.$transaction([
         this.prisma.scheduledInspection.count({
@@ -441,10 +567,7 @@ export class OverviewService {
           },
         }),
         this.prisma.scheduledInspection.count({
-          where: {
-            assignedTo: userId,
-            scheduledAt: { gte: thisMonth },
-          },
+          where: { assignedTo: userId, scheduledAt: { gte: thisMonth } },
         }),
         this.prisma.scheduledInspection.count({
           where: {
@@ -455,7 +578,6 @@ export class OverviewService {
         }),
       ]);
 
-    // ── Today's inspections ────────────────────────────────────────────────
     const todaysInspections = await this.prisma.scheduledInspection.findMany({
       where: {
         assignedTo: userId,
@@ -471,7 +593,6 @@ export class OverviewService {
       },
     });
 
-    // ── Recent 5 inspections ───────────────────────────────────────────────
     const recentInspections = await this.prisma.scheduledInspection.findMany({
       where: { assignedTo: userId },
       take: 5,
@@ -503,11 +624,7 @@ export class OverviewService {
       message: 'Operational overview retrieved',
       data: {
         role: Role.OPERATIONAL,
-        stats: {
-          todayCount,
-          totalAssignedThisMonth,
-          completedThisMonth,
-        },
+        stats: { todayCount, totalAssignedThisMonth, completedThisMonth },
         todaysInspections: todaysInspections.map(_formatScheduled),
         recentInspections: recentInspections.map(_formatScheduled),
       },

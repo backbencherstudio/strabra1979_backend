@@ -374,27 +374,31 @@ export class InspectionController {
     );
   }
 
-  @Delete(':inspectionId')
+  @Delete(':scheduledInspectionId')
   @Roles(Role.ADMIN)
   @ApiOperation({
     summary:
-      'Delete an inspection and its linked scheduled inspection (Admin only)',
+      'Delete a scheduled inspection and its linked inspection report (Admin only)',
     description:
-      'Permanently deletes the Inspection record along with:\n\n' +
+      'Permanently deletes the ScheduledInspection record along with:\n\n' +
+      '- The linked `Inspection` report (if submitted)\n' +
       '- All associated `MediaFile` records\n' +
-      '- The linked `ScheduledInspection` record\n' +
       '- All `InspectionFolderItem` references\n\n' +
+      '⚠️ If no inspection has been submitted yet, only the schedule is deleted.\n' +
       '⚠️ This action is irreversible.',
   })
   @ApiParam({
-    name: 'inspectionId',
-    description: 'CUID of the Inspection to delete',
+    name: 'scheduledInspectionId',
+    description: 'CUID of the ScheduledInspection to delete',
   })
-  @ApiOkResponse({ description: 'Inspection deleted successfully.' })
+  @ApiOkResponse({ description: 'Scheduled inspection deleted successfully.' })
   deleteInspection(
-    @Param('inspectionId') inspectionId: string,
+    @Param('scheduledInspectionId') scheduledInspectionId: string,
     @Req() req: Request,
   ) {
-    return this.service.deleteInspection(inspectionId, req.user.userId);
+    return this.service.deleteInspection(
+      scheduledInspectionId,
+      req.user.userId,
+    );
   }
 }

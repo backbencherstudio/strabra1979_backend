@@ -28,18 +28,19 @@ async function bootstrap() {
   });
   app.use(
     helmet({
+      crossOriginResourcePolicy: { policy: 'cross-origin' }, // ← add this
       contentSecurityPolicy: {
         directives: {
           defaultSrc: [`'self'`],
-          connectSrc: [`'self'`, `https:`, `http:`], // ← allows Swagger to call any https/http URL
+          connectSrc: [`'self'`, `https:`, `http:`],
           scriptSrc: [`'self'`, `'unsafe-inline'`, `'unsafe-eval'`],
           styleSrc: [`'self'`, `'unsafe-inline'`],
-          imgSrc: [`'self'`, `data:`, `https:`],
+          imgSrc: [`'self'`, `data:`, `https:`, `http:`], // ← also add http: here
           workerSrc: [`'self'`, `blob:`],
           frameSrc: [`'self'`],
         },
       },
-      crossOriginEmbedderPolicy: false, // ← needed for Swagger UI assets
+      crossOriginEmbedderPolicy: false,
     }),
   );
   // Enable it, if special charactrers not encoding perfectly
@@ -50,13 +51,9 @@ async function bootstrap() {
   //   }
   //   next();
   // });
-  app.useStaticAssets(join(__dirname, '..', 'public'), {
+  app.useStaticAssets(join(process.cwd(), 'public'), {
     index: false,
     prefix: '/public',
-  });
-  app.useStaticAssets(join(__dirname, '..', 'public/storage'), {
-    index: false,
-    prefix: '/storage',
   });
   app.useGlobalPipes(
     new ValidationPipe({

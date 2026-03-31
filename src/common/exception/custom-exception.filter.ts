@@ -34,11 +34,22 @@ export class CustomExceptionFilter implements ExceptionFilter {
         };
       });
     } else {
-      // Other HttpExceptions
       message =
         typeof exceptionResponse === 'string'
           ? exceptionResponse
           : (exceptionResponse.message ?? message);
+    }
+
+    // ✅ Console logging
+    console.log('\n🚨 Exception Caught');
+    console.log('Status:', status);
+    console.log('Message:', message);
+
+    if (errors.length) {
+      console.log('Validation Errors:');
+      console.table(errors); // 👈 this is what you want
+    } else {
+      console.log('Raw Exception Response:', exceptionResponse);
     }
 
     response.status(status).json({
