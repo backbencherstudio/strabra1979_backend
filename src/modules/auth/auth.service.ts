@@ -44,7 +44,7 @@ export class AuthService {
         },
         select: {
           id: true,
-          name: true,
+          username: true,
           email: true,
           avatar: true,
           role: true,
@@ -351,7 +351,7 @@ export class AuthService {
 
     await this.mailService.sendOtpCodeToEmail({
       email: user.email,
-      name: user.name,
+      name: user.username,
       otp,
     });
 
@@ -486,7 +486,7 @@ export class AuthService {
 
     await this.mailService.sendOtpCodeToEmail({
       email: user.email,
-      name: user.name,
+      name: user.username,
       otp: token,
     });
 

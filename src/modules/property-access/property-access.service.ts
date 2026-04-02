@@ -117,7 +117,7 @@ export class PropertyAccessService {
 
     const requester = await this.prisma.user.findUnique({
       where: { id: requesterId },
-      select: { name: true, email: true, avatar: true },
+      select: { username: true, email: true, avatar: true },
     });
 
     const accessRequest = await this.prisma.propertyAccessRequest.upsert({
@@ -137,7 +137,7 @@ export class PropertyAccessService {
       await this.notifications.accessRequested({
         propertyManagerId: recipientId,
         requesterId,
-        requesterName: requester.name ?? requester.email ?? 'Unknown',
+        requesterName: requester.username ?? requester.email ?? 'Unknown',
         requesterEmail: requester.email ?? '',
         requesterAvatar: requester.avatar ?? undefined,
         propertyId,
@@ -183,14 +183,14 @@ export class PropertyAccessService {
         requester: {
           select: {
             id: true,
-            name: true,
+            username: true,
             email: true,
             avatar: true,
             role: true,
           },
         },
         reviewer: {
-          select: { id: true, name: true, email: true, role: true },
+          select: { id: true, username: true, email: true, role: true },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -232,7 +232,7 @@ export class PropertyAccessService {
 
     const reviewer = await this.prisma.user.findUnique({
       where: { id: reviewerId },
-      select: { name: true, email: true },
+      select: { username: true, email: true },
     });
 
     // ── APPROVED ──────────────────────────────────────────────────────────
@@ -270,7 +270,7 @@ export class PropertyAccessService {
           data: {
             category: ActivityCategory.USER_ACCESS,
             actor_role: request.requester.role,
-            message: `${request.requester.name} access request for ${request.property.name} was approved`,
+            message: `${request.requester.username} access request for ${request.property.name} was approved`,
           },
         });
       });
@@ -278,7 +278,7 @@ export class PropertyAccessService {
       await this.notifications.accessApproved({
         userId: request.requesterId,
         approvedBy: reviewerId,
-        approverName: reviewer?.name ?? 'Admin',
+        approverName: reviewer?.username ?? 'Admin',
         propertyId,
         propertyName: request.property.name,
         dashboardId,
@@ -305,14 +305,14 @@ export class PropertyAccessService {
         data: {
           category: ActivityCategory.USER_ACCESS,
           actor_role: request.requester.role,
-          message: `${request.requester.name} access request for ${request.property.name} was declined`,
+          message: `${request.requester.username} access request for ${request.property.name} was declined`,
         },
       });
 
       await this.notifications.accessDeclined({
         userId: request.requesterId,
         declinedBy: reviewerId,
-        declinerName: reviewer?.name ?? 'Admin',
+        declinerName: reviewer?.username ?? 'Admin',
         propertyId,
         propertyName: request.property.name,
       });
@@ -344,7 +344,7 @@ export class PropertyAccessService {
 
     const granter = await this.prisma.user.findUnique({
       where: { id: granterId },
-      select: { name: true },
+      select: { username: true },
     });
 
     const access = await this.prisma.propertyAccess.upsert({
@@ -368,14 +368,14 @@ export class PropertyAccessService {
       data: {
         category: ActivityCategory.USER_ACCESS,
         actor_role: targetUser.role,
-        message: `${targetUser.name} was given view access to ${property.name} dashboard`,
+        message: `${targetUser.username} was given view access to ${property.name} dashboard`,
       },
     });
 
     await this.notifications.dashboardShared({
       userId: targetUser.id,
       sharedById: granterId,
-      sharerName: granter?.name ?? 'Admin',
+      sharerName: granter?.username ?? 'Admin',
       propertyId,
       propertyName: property.name,
       dashboardId,
@@ -385,7 +385,7 @@ export class PropertyAccessService {
       message: `Access granted to ${targetUser.email}.`,
       user: {
         id: targetUser.id,
-        name: targetUser.name,
+        name: targetUser.username,
         email: targetUser.email,
         avatar: targetUser.avatar,
         expiresAt: access.expiresAt,
@@ -406,7 +406,7 @@ export class PropertyAccessService {
 
     const targetUser = await this.prisma.user.findUnique({
       where: { id: targetUserId },
-      select: { name: true, role: true },
+      select: { username: true, role: true },
     });
     if (!targetUser) throw new NotFoundException('User not found.');
 
@@ -427,7 +427,7 @@ export class PropertyAccessService {
       data: {
         category: ActivityCategory.USER_ACCESS,
         actor_role: targetUser.role,
-        message: `${targetUser.name} access to ${property.name} dashboard was revoked`,
+        message: `${targetUser.username} access to ${property.name} dashboard was revoked`,
       },
     });
 
