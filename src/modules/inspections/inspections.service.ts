@@ -317,14 +317,14 @@ export class InspectionService {
           // 6. Activity log
           const inspector = await tx.user.findUnique({
             where: { id: inspectorId },
-            select: { name: true, role: true },
+            select: { username: true, role: true },
           });
 
           await tx.activityLog.create({
             data: {
               category: ActivityCategory.PROPERTY_DASHBOARD_UPDATE,
               actor_role: inspector?.role ?? null,
-              message: `${inspector?.name ?? 'Inspector'} submitted an inspection report for ${dashboard.property?.name ?? 'Unknown Property'}`,
+              message: `${inspector?.username ?? 'Inspector'} submitted an inspection report for ${dashboard.property?.name ?? 'Unknown Property'}`,
             },
           });
 
@@ -337,7 +337,7 @@ export class InspectionService {
 
       const inspector = await this.prisma.user.findUnique({
         where: { id: inspectorId },
-        select: { name: true, role: true },
+        select: { username: true, role: true },
       });
 
       const admins = await this.prisma.user.findMany({
@@ -348,7 +348,7 @@ export class InspectionService {
       await this.notifications.inspectionReportUpdate({
         adminIds: admins.map((a) => a.id),
         inspectorId,
-        inspectorName: inspector?.name ?? 'Inspector',
+        inspectorName: inspector?.username ?? 'Inspector',
         propertyId: dashboard.property?.id ?? dashboardId,
         propertyName,
         inspectionId: inspection.id,
@@ -603,7 +603,7 @@ export class InspectionService {
       where: { id: inspectionId },
       include: {
         inspector: {
-          select: { id: true, name: true, email: true, avatar: true },
+          select: { id: true, username: true, email: true, avatar: true },
         },
         mediaFiles: true,
         dashboard: { include: { property: { select: { id: true } } } },
@@ -643,7 +643,7 @@ export class InspectionService {
       orderBy: { scheduledAt: 'desc' },
       include: {
         assignee: {
-          select: { id: true, name: true, avatar: true, email: true },
+          select: { id: true, username: true, avatar: true, email: true },
         },
         dashboard: {
           include: {
@@ -811,9 +811,9 @@ export class InspectionService {
             },
           },
           assignee: {
-            select: { id: true, name: true, email: true, avatar: true },
+            select: { id: true, username: true, email: true, avatar: true },
           },
-          creator: { select: { id: true, name: true } },
+          creator: { select: { id: true, username: true } },
         },
       }),
       this.prisma.scheduledInspection.count({ where }),

@@ -156,7 +156,7 @@ export class InspectionController {
   @UseInterceptors(FilesInterceptor('files', 50))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
-    summary: 'Update an inspection before publishing (Admin only)',
+    summary: 'Update an inspection before publishing (Admin and operational only)',
     description:
       'Allows admin to modify inspection data before publishing.\n\n' +
       'Only works on inspections in `COMPLETE` status (not yet published).\n\n' +

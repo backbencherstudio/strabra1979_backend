@@ -151,7 +151,7 @@ export class OverviewService {
             property: { select: { name: true, address: true } },
           },
         },
-        assignee: { select: { id: true, name: true, avatar: true } },
+        assignee: { select: { id: true, username: true, avatar: true } },
       },
     });
 
@@ -188,7 +188,7 @@ export class OverviewService {
           },
         },
         propertyManager: {
-          select: { id: true, name: true, avatar: true },
+          select: { id: true, username: true, avatar: true },
         },
       },
     });
@@ -424,7 +424,7 @@ export class OverviewService {
             property: { select: { name: true, address: true } },
           },
         },
-        inspector: { select: { id: true, name: true, avatar: true } },
+        inspector: { select: { id: true, username: true, avatar: true } },
       },
     });
 

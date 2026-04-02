@@ -637,8 +637,8 @@ export class PropertyDashboardService {
         category: ActivityCategory.USER_ACCESS,
         actor_role: user.role,
         message: dto.expiresAt
-          ? `${user.name} was given view access to ${property.name} dashboard until ${new Date(dto.expiresAt).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`
-          : `${user.name} was given view access to ${property.name} dashboard`,
+          ? `${user.username} was given view access to ${property.name} dashboard until ${new Date(dto.expiresAt).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`
+          : `${user.username} was given view access to ${property.name} dashboard`,
       },
     });
 
@@ -688,7 +688,7 @@ export class PropertyDashboardService {
           propertyManager: {
             select: {
               id: true,
-              name: true,
+              username: true,
               email: true,
               avatar: true,
               role: true,

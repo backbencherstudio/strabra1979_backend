@@ -17,8 +17,7 @@ import { ScheduledInspectionStatus } from 'prisma/generated/enums';
 import { ChartPeriod, OverviewQueryDto } from './overview.enum';
 
 @ApiTags('Overview')
-@ApiBearerAuth(SWAGGER_AUTH.admin)
-@ApiBearerAuth(SWAGGER_AUTH.authorized_viewer)
+@ApiBearerAuth(SWAGGER_AUTH.operational)
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('overview')
 export class OverviewController {

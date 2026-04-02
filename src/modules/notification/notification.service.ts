@@ -92,7 +92,7 @@ export class NotificationService {
         sender: {
           select: {
             id: true,
-            name: true,
+            username: true,
             first_name: true,
             last_name: true,
             avatar: true,
@@ -511,7 +511,7 @@ export class NotificationService {
           sender: {
             select: {
               id: true,
-              name: true,
+              username: true,
               first_name: true,
               last_name: true,
               avatar: true,
