@@ -616,6 +616,7 @@ export class OverviewService {
       }),
       property: s.dashboard.property.name,
       address: s.dashboard.property.address,
+      inspectionId: s.inspectionId ?? null,
       dashboardId: s.dashboardId,
     });
 
