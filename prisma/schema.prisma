@@ -472,6 +472,8 @@ model Notification {
 
   entity_id String?
 
+  metadata Json?  // Stores requestId, actions, etc.
+
   @@map("notifications")
 }
 

@@ -10,7 +10,9 @@ import {
   CreateFolderDto,
   UpdateFolderDto,
   AddInspectionsToFolderDto,
+  FindDashboardInspectionsDto,
 } from './dto/inspection-folder.dto';
+import { Prisma } from 'prisma/generated/client';
 
 @Injectable()
 export class InspectionFolderService {
@@ -77,13 +79,19 @@ export class InspectionFolderService {
   async getFolder(folderId: string) {
     const folder = await this.prisma.inspectionFolder.findUnique({
       where: { id: folderId },
-      include: {
+      select: {
+        id: true,
+        name: true,
+        dashboardId: true,
+        createdAt: true,
         items: {
-          include: {
+          select: {
+            addedAt: true,
             inspection: {
-              include: {
-                inspector: { select: { id: true, name: true, avatar: true } },
-                mediaFiles: true,
+              select: {
+                id: true,
+                headerData: true,
+                createdAt: true,
               },
             },
           },
@@ -102,36 +110,68 @@ export class InspectionFolderService {
         name: folder.name,
         dashboardId: folder.dashboardId,
         createdAt: folder.createdAt,
-        inspections: folder.items.map((i) => i.inspection),
+        inspections: folder.items.map((i) => ({
+          id: i.inspection.id,
+          title: (i.inspection.headerData as any)?.inspectionTitle ?? null,
+          createdAt: i.inspection.createdAt,
+        })),
       },
     };
   }
 
   // Already implemented — no changes needed
-  async findAllForDashboard(dashboardId: string) {
+  async findAllForDashboard(
+    dashboardId: string,
+    filters: FindDashboardInspectionsDto,
+  ) {
     await this._assertDashboardExists(dashboardId);
 
-    const inspections = await this.prisma.inspection.findMany({
-      where: { dashboardId },
-      include: {
-        inspector: { select: { id: true, name: true, avatar: true } },
-        mediaFiles: {
-          select: {
-            id: true,
-            fileName: true,
-            fileType: true,
-            url: true,
-            mediaFieldKey: true,
-          },
+    const { search, page = 1, limit = 10 } = filters;
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.InspectionWhereInput = {
+      dashboardId,
+      ...(search?.trim() && {
+        headerData: {
+          path: ['inspectionTitle'],
+          string_contains: search.trim(),
         },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+      }),
+    };
+
+    const [inspections, total] = await this.prisma.$transaction([
+      this.prisma.inspection.findMany({
+        where,
+        select: {
+          id: true,
+          headerData: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.inspection.count({ where }),
+    ]);
+
+    const total_pages = Math.ceil(total / limit);
 
     return {
       success: true,
       message: 'Inspections retrieved',
-      data: inspections,
+      data: inspections.map(({ id, headerData, createdAt }) => ({
+        id,
+        title: (headerData as Record<string, any>)?.inspectionTitle ?? null,
+        createdAt,
+      })),
+      meta: {
+        total,
+        page,
+        limit,
+        total_pages,
+        has_next_page: page < total_pages,
+        has_prev_page: page > 1,
+      },
     };
   }
 

@@ -598,6 +598,40 @@ export class InspectionService {
   // INSPECTION QUERIES
   // ═════════════════════════════════════════════════════════════════════════
 
+  async getPropertyInfo(dashboardId: string, userId: string, role: string) {
+    const dashboard = await this.prisma.propertyDashboard.findUnique({
+      where: { id: dashboardId },
+      include: {
+        property: {
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            propertyType: true,
+            status: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+
+    if (!dashboard)
+      throw new NotFoundException(
+        `PropertyDashboard "${dashboardId}" not found.`,
+      );
+
+    await this._assertPropertyAccess(dashboard.property.id, userId, role);
+
+    return {
+      success: true,
+      message: 'Property info retrieved successfully',
+      data: {
+        dashboardId: dashboard.id,
+        property: dashboard.property,
+      },
+    };
+  }
+
   async findOne(inspectionId: string, userId: string, role: string) {
     const inspection = await this.prisma.inspection.findUnique({
       where: { id: inspectionId },
@@ -854,11 +888,47 @@ export class InspectionService {
     userId: string,
     role: string,
   ) {
+    // 1️⃣ Fetch minimal property first for access check
+    const accessCheck = await this.prisma.scheduledInspection.findUnique({
+      where: { id: scheduledInspectionId },
+      select: {
+        dashboard: {
+          select: {
+            property: { select: { id: true } },
+          },
+        },
+      },
+    });
+
+    if (!accessCheck)
+      throw new NotFoundException('Scheduled inspection not found.');
+
+    await this._assertPropertyAccess(
+      accessCheck.dashboard.property.id,
+      userId,
+      role,
+    );
+
+    // 2️⃣ Fetch actual data (minimal fields only)
     const scheduled = await this.prisma.scheduledInspection.findUnique({
       where: { id: scheduledInspectionId },
-      include: {
+      select: {
+        id: true,
+        status: true,
+        scheduledAt: true,
+        dashboardId: true,
+        createdAt: true,
+
+        assignee: {
+          select: { id: true, username: true, email: true, avatar: true },
+        },
+
+        creator: {
+          select: { id: true, username: true },
+        },
+
         dashboard: {
-          include: {
+          select: {
             property: {
               select: {
                 id: true,
@@ -869,34 +939,46 @@ export class InspectionService {
             },
           },
         },
-        assignee: {
-          select: { id: true, username: true, email: true, avatar: true },
-        },
-        creator: { select: { id: true, username: true } },
+
         inspection: {
-          include: {
+          select: {
+            id: true,
+            inspectedAt: true,
+            overallScore: true,
+            healthLabel: true,
+            remainingLife: true,
+            headerData: true,
+            scores: true,
+            repairItems: true,
+            nteValue: true,
+            additionalComments: true,
+            inspector: {
+              select: {
+                id: true,
+                username: true,
+                email: true,
+                avatar: true,
+              },
+            },
             mediaFiles: {
               orderBy: { uploadedAt: 'asc' },
-            },
-            inspector: {
-              select: { id: true, username: true, email: true, avatar: true },
+              select: {
+                id: true,
+                fileName: true,
+                fileType: true,
+                url: true,
+                mediaFieldKey: true,
+                uploadedAt: true,
+              },
             },
           },
         },
       },
     });
 
-    if (!scheduled)
-      throw new NotFoundException('Scheduled inspection not found.');
-
-    await this._assertPropertyAccess(
-      scheduled.dashboard.property.id,
-      userId,
-      role,
-    );
-
-    // ── Group media files by slot key ──────────────────────────────────────
+    // 3️⃣ Group media by slot
     const mediaBySlot: Record<string, any[]> = {};
+
     for (const mf of scheduled.inspection?.mediaFiles ?? []) {
       const key = mf.mediaFieldKey ?? 'mediaFiles';
       mediaBySlot[key] ??= [];
@@ -910,7 +992,6 @@ export class InspectionService {
       success: true,
       message: 'Scheduled inspection retrieved',
       data: {
-        // ── Schedule info ────────────────────────────────────────────────
         id: scheduled.id,
         status: scheduled.status,
         scheduledAt: scheduled.scheduledAt,
@@ -919,31 +1000,12 @@ export class InspectionService {
         assignee: scheduled.assignee,
         createdBy: scheduled.creator,
 
-        // ── Property info ────────────────────────────────────────────────
-        property: {
-          id: scheduled.dashboard.property.id,
-          name: scheduled.dashboard.property.name,
-          address: scheduled.dashboard.property.address,
-          propertyType: scheduled.dashboard.property.propertyType,
-        },
+        property: scheduled.dashboard.property,
 
-        // ── Filled inspection (null if not yet submitted) ─────────────────
         inspection: scheduled.inspection
           ? {
-              id: scheduled.inspection.id,
-              inspectedAt: scheduled.inspection.inspectedAt,
-              overallScore: scheduled.inspection.overallScore,
-              healthLabel: scheduled.inspection.healthLabel,
-              remainingLife: scheduled.inspection.remainingLife,
-              headerData: scheduled.inspection.headerData,
-              scores: scheduled.inspection.scores,
-              repairItems: scheduled.inspection.repairItems,
-              nteValue: scheduled.inspection.nteValue,
-              additionalComments: scheduled.inspection.additionalComments,
-              inspector: scheduled.inspection.inspector,
-              // ── Media grouped by slot ──────────────────────────────────
+              ...scheduled.inspection,
               media: mediaBySlot,
-              // ── Raw media list (if frontend prefers flat) ──────────────
               mediaFiles: scheduled.inspection.mediaFiles.map((file) => ({
                 ...file,
                 url:
@@ -1091,23 +1153,51 @@ export class InspectionService {
     userId: string,
     role: string,
   ) {
-    // ADMIN always has access
+    // ADMIN → always allowed
     if (role === 'ADMIN') return;
 
-    const now = new Date();
-    const access = await this.prisma.propertyAccess.findFirst({
-      where: {
-        propertyId,
-        userId,
-        revokedAt: null,
-        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-      },
+    // 1️⃣ Check property ownership first
+    const property = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+      select: { propertyManagerId: true },
     });
 
-    if (!access)
-      throw new ForbiddenException(
-        'You do not have access to this property dashboard. Contact your admin.',
-      );
+    if (!property) {
+      throw new NotFoundException('Property not found');
+    }
+
+    // 2️⃣ PROPERTY_MANAGER → must own this property
+    if (role === 'PROPERTY_MANAGER') {
+      if (property.propertyManagerId !== userId) {
+        throw new ForbiddenException('This property does not belong to you.');
+      }
+      return; // ✅ done
+    }
+
+    // 3️⃣ AUTHORIZED_VIEWER → must have valid access entry
+    if (role === 'AUTHORIZED_VIEWER') {
+      const now = new Date();
+
+      const access = await this.prisma.propertyAccess.findFirst({
+        where: {
+          propertyId,
+          userId,
+          revokedAt: null,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        },
+      });
+
+      if (!access) {
+        throw new ForbiddenException(
+          'You do not have access to this property dashboard. Contact your admin.',
+        );
+      }
+
+      return; // ✅ done
+    }
+
+    // 4️⃣ Any other role → deny
+    throw new ForbiddenException('Invalid role for this action.');
   }
 
   private async _assertDashboardExists(dashboardId: string) {

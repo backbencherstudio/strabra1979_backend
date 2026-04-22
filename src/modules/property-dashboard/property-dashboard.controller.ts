@@ -33,7 +33,7 @@ import { Request } from 'express';
 import { SWAGGER_AUTH } from 'src/common/swagger/swagger-auth';
 
 @ApiTags('Property Dashboard')
-@ApiBearerAuth(SWAGGER_AUTH.admin)
+@ApiBearerAuth(SWAGGER_AUTH.property_manager)
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('properties')
 export class PropertyDashboardController {
@@ -42,7 +42,7 @@ export class PropertyDashboardController {
   // ─── LIST ALL PROPERTIES ──────────────────────────────────────────────────
 
   @Get()
-  @Roles(Role.ADMIN, Role.PROPERTY_MANAGER)
+  @Roles(Role.ADMIN, Role.PROPERTY_MANAGER, Role.AUTHORIZED_VIEWER)
   @ApiOperation({
     summary: 'List all properties (Property List page)',
     description:
