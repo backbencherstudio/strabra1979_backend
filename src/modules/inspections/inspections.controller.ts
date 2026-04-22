@@ -36,7 +36,7 @@ import { InspectionService } from './inspections.service';
 import { ScheduledInspectionStatus } from 'prisma/generated/enums';
 
 @ApiTags('Inspections')
-@ApiBearerAuth(SWAGGER_AUTH.admin)
+@ApiBearerAuth(SWAGGER_AUTH.operational)
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('inspections')
 export class InspectionController {
