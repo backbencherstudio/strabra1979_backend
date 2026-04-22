@@ -36,7 +36,7 @@ import { InspectionService } from './inspections.service';
 import { ScheduledInspectionStatus } from 'prisma/generated/enums';
 
 @ApiTags('Inspections')
-@ApiBearerAuth(SWAGGER_AUTH.operational)
+@ApiBearerAuth(SWAGGER_AUTH.admin)
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('inspections')
 export class InspectionController {
@@ -47,7 +47,7 @@ export class InspectionController {
   // ═════════════════════════════════════════════════════════════════════════
 
   @Get('property/:dashboardId/form')
-  @Roles(Role.ADMIN, Role.OPERATIONAL)
+  @Roles(Role.ADMIN, Role.OPERATIONAL, Role.AUTHORIZED_VIEWER, Role.PROPERTY_MANAGER)
   @ApiOperation({
     summary: 'Get inspection form config',
     description:
@@ -118,6 +118,9 @@ export class InspectionController {
               'documents',
               'documents',
             ],
+            embedFields: {
+              tour3d: 'https://threejs.org/examples/#webgl_animation_keyframes',
+            },
           }),
         },
         files: {
@@ -156,7 +159,8 @@ export class InspectionController {
   @UseInterceptors(FilesInterceptor('files', 50))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
-    summary: 'Update an inspection before publishing (Admin and operational only)',
+    summary:
+      'Update an inspection before publishing (Admin and operational only)',
     description:
       'Allows admin to modify inspection data before publishing.\n\n' +
       'Only works on inspections in `COMPLETE` status (not yet published).\n\n' +
@@ -228,6 +232,25 @@ export class InspectionController {
     @Req() req: Request,
   ) {
     return this.service.findAllForDashboard(
+      dashboardId,
+      req.user.userId,
+      req.user.role,
+    );
+  }
+
+  @Get('property/:dashboardId/info')
+  @Roles(Role.ADMIN, Role.OPERATIONAL, Role.PROPERTY_MANAGER)
+  @ApiOperation({ summary: 'Get property info by dashboardId' })
+  @ApiParam({
+    name: 'dashboardId',
+    description: 'CUID of the PropertyDashboard',
+  })
+  @ApiOkResponse({ description: 'Property info returned.' })
+  getPropertyInfo(
+    @Param('dashboardId') dashboardId: string,
+    @Req() req: Request,
+  ) {
+    return this.service.getPropertyInfo(
       dashboardId,
       req.user.userId,
       req.user.role,

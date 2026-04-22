@@ -50,23 +50,50 @@ export class PropertyDashboardService {
     userId: string,
     role: string,
   ) {
-    // ADMIN always has full access
+    // ADMIN → always allowed
     if (role === Role.ADMIN) return;
 
-    const now = new Date();
-    const access = await this.prisma.propertyAccess.findFirst({
-      where: {
-        propertyId,
-        userId,
-        revokedAt: null,
-        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-      },
+    // Step 1 — Get property owner (PM)
+    const property = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+      select: { propertyManagerId: true },
     });
 
-    if (!access)
-      throw new ForbiddenException(
-        'You do not have access to this property dashboard. Contact your admin.',
-      );
+    if (!property) {
+      throw new NotFoundException('Property not found');
+    }
+
+    // Step 2 — PROPERTY_MANAGER owns this property
+    if (role === Role.PROPERTY_MANAGER) {
+      if (property.propertyManagerId !== userId) {
+        throw new ForbiddenException('This property does not belong to you.');
+      }
+      return; // ✅ no PropertyAccess check needed
+    }
+
+    // Step 3 — AUTHORIZED_VIEWER must have access entry
+    if (role === Role.AUTHORIZED_VIEWER) {
+      const now = new Date();
+
+      const access = await this.prisma.propertyAccess.findFirst({
+        where: {
+          propertyId,
+          userId,
+          revokedAt: null,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        },
+      });
+
+      if (!access) {
+        throw new ForbiddenException(
+          'You do not have access to this property dashboard. Contact your admin.',
+        );
+      }
+
+      return;
+    }
+
+    throw new ForbiddenException('Invalid role for this action.');
   }
 
   // ═════════════════════════════════════════════════════════════════════════
@@ -306,7 +333,8 @@ export class PropertyDashboardService {
 
     if (
       requestingUserRole === Role.ADMIN ||
-      requestingUserRole === Role.PROPERTY_MANAGER
+      requestingUserRole === Role.PROPERTY_MANAGER ||
+      requestingUserRole === Role.AUTHORIZED_VIEWER
     ) {
       const [properties, total] = await this.prisma.$transaction([
         this.prisma.property.findMany({
@@ -358,10 +386,10 @@ export class PropertyDashboardService {
     // ── Access check for all non-admin roles ──────────────────────────────
     await this._assertPropertyAccess(propertyId, userId, userRole);
 
-    return this.findOneByDashboard(dashboardId);
+    return this.findOneByDashboard(dashboardId, userId);
   }
 
-  async findOneByDashboard(dashboardId: string) {
+  async findOneByDashboard(dashboardId: string, userId: string) {
     const dashboard = await this.prisma.propertyDashboard.findUnique({
       where: { id: dashboardId },
       include: {
@@ -369,6 +397,11 @@ export class PropertyDashboardService {
           include: {
             propertyManager: {
               select: { id: true, username: true, email: true, avatar: true },
+            },
+            accesses: {
+              where: { userId },
+              select: { expiresAt: true },
+              take: 1,
             },
             activeTemplate: true,
           },
@@ -389,11 +422,18 @@ export class PropertyDashboardService {
     if (!dashboard)
       throw new NotFoundException(`Dashboard "${dashboardId}" not found.`);
 
+    const accessExpiresAt = dashboard.property.accesses[0]?.expiresAt ?? null;
+
     return {
       success: true,
       message: 'Dashboard retrieved successfully',
       data: {
         ...dashboard,
+        property: {
+          accessExpiresAt,
+          ...dashboard.property,
+          accesses: undefined, // strip the raw accesses array from the response
+        },
         inspections: dashboard.inspections.map((inspection) => ({
           ...inspection,
           mediaFiles: inspection.mediaFiles.map((file) => ({

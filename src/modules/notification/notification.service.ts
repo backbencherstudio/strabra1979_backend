@@ -86,6 +86,7 @@ export class NotificationService {
         notification_event_id: event.id,
         entity_id: params.entityId ?? null,
         status: 1,
+        metadata: params.metadata ?? null,
       },
       include: {
         notification_event: true,
@@ -125,35 +126,27 @@ export class NotificationService {
     propertyManagerId: string;
     requesterId: string;
     requesterName: string;
+    requestId: string;
     requesterEmail: string;
     requesterAvatar?: string;
-    propertyId: string;
+    dashboardId: string;
     propertyName: string;
   }) {
     return this.send({
       type: NotificationType.ACCESS_REQUEST,
       receiverId: params.propertyManagerId,
       senderId: params.requesterId,
-      entityId: params.propertyId,
+      entityId: params.dashboardId,
       text: `Requested to View **${params.propertyName}** Property.`,
       metadata: {
+        requestId: params.requestId,
         requesterId: params.requesterId,
         requesterName: params.requesterName,
         requesterEmail: params.requesterEmail,
         requesterAvatar: params.requesterAvatar,
-        propertyId: params.propertyId,
+        dashboardId: params.dashboardId,
         propertyName: params.propertyName,
         hasActions: true,
-        actions: {
-          accept: {
-            label: 'Accept',
-            endpoint: `PATCH /properties/${params.propertyId}/access/requests/${params.requesterId}/approve`,
-          },
-          decline: {
-            label: 'Decline',
-            endpoint: `PATCH /properties/${params.propertyId}/access/requests/${params.requesterId}/decline`,
-          },
-        },
       },
     });
   }
@@ -498,14 +491,16 @@ export class NotificationService {
   // ─────────────────────────────────────────────────────────────────────────
 
   async getNotifications(userId: string, page = 1, limit = 20) {
-    const skip = (page - 1) * limit;
+    const pageNumber = Number(page) || 1;
+    const limitNumber = Number(limit) || 20;
+    const skip = (pageNumber - 1) * limitNumber;
 
     const [notifications, total, unreadCount] = await this.prisma.$transaction([
       this.prisma.notification.findMany({
         where: { receiver_id: userId },
         orderBy: { created_at: 'desc' },
         skip,
-        take: limit,
+        take: limitNumber,
         include: {
           notification_event: true,
           sender: {
@@ -526,16 +521,47 @@ export class NotificationService {
       }),
     ]);
 
+    const formatted = notifications.map((n) => {
+      const eventType = n.notification_event?.type;
+      // ✅ Set default metadata if null
+      const metadata = (n.metadata as any) || {};
+
+      const response: any = {
+        ...n,
+        metadata,
+      };
+
+      // ✅ Only add actions if event type matches and metadata has requestId
+      if (eventType === 'access_request' && metadata.requestId) {
+        response.actions = {
+          accept: {
+            label: 'Accept',
+            dashboardId: n.entity_id,
+            requestId: metadata.requestId,
+            action: 'approve',
+          },
+          decline: {
+            label: 'Decline',
+            dashboardId: n.entity_id,
+            requestId: metadata.requestId,
+            action: 'reject',
+          },
+        };
+      }
+
+      return response;
+    });
+
     return {
       success: true,
       message: 'Notifications fetched successfully',
-      data: notifications,
+      data: formatted,
       meta: {
         total,
         unreadCount,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
+        page: pageNumber,
+        limit: limitNumber,
+        totalPages: Math.ceil(total / limitNumber),
       },
     };
   }

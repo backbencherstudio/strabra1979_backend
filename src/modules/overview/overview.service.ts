@@ -231,6 +231,7 @@ export class OverviewService {
             address: s.dashboard.property.address,
             dashboardId: s.dashboardId,
             assignee: s.assignee,
+            inspectionId: s.inspectionId ?? null,
           })),
         },
         activityLogs,

@@ -140,8 +140,9 @@ export class PropertyAccessService {
         requesterName: requester.username ?? requester.email ?? 'Unknown',
         requesterEmail: requester.email ?? '',
         requesterAvatar: requester.avatar ?? undefined,
-        propertyId,
+        dashboardId,
         propertyName: property.name,
+        requestId: accessRequest.id,
       });
     }
 

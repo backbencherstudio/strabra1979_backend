@@ -35,7 +35,7 @@ import { Role } from 'src/common/guard/role/role.enum';
 import { AccessRequestStatus } from 'prisma/generated/enums';
 
 @ApiTags('Property Access')
-@ApiBearerAuth(SWAGGER_AUTH.admin)
+@ApiBearerAuth(SWAGGER_AUTH.authorized_viewer)
 // @ApiBearerAuth(SWAGGER_AUTH.admin)
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('properties/dashboard/:dashboardId')

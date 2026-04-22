@@ -10,6 +10,7 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -17,12 +18,14 @@ import {
   ApiBearerAuth,
   ApiParam,
   ApiResponse,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { InspectionFolderService } from './inspection-folder.service';
 import {
   CreateFolderDto,
   UpdateFolderDto,
   AddInspectionsToFolderDto,
+  FindDashboardInspectionsDto,
 } from './dto/inspection-folder.dto';
 import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/common/guard/role/roles.guard';
@@ -40,7 +43,7 @@ export class InspectionFolderController {
 
   // GET /dashboards/:dashboardId/folders
   @Get('folders')
-  @Roles(Role.ADMIN, Role.PROPERTY_MANAGER)
+  @Roles(Role.ADMIN, Role.PROPERTY_MANAGER, Role.AUTHORIZED_VIEWER)
   @ApiOperation({
     summary: 'Get all folders for a dashboard',
   })
@@ -70,13 +73,38 @@ export class InspectionFolderController {
   @Roles(Role.ADMIN, Role.PROPERTY_MANAGER, Role.AUTHORIZED_VIEWER)
   @ApiOperation({
     summary: 'Get all inspection reports for a property dashboard',
+    description:
+      'Returns paginated inspections for a dashboard. Optionally filter by inspection title stored inside the `headerData` JSON field.',
   })
   @ApiParam({
     name: 'dashboardId',
     description: 'CUID of the PropertyDashboard',
+    example: 'clx1234abcd5678efgh',
   })
-  getDashboardInspections(@Param('dashboardId') dashboardId: string) {
-    return this.service.findAllForDashboard(dashboardId);
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    description:
+      'Search term matched against headerData.inspectionTitle (case-insensitive)',
+    example: '2024 Annual Roof',
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    description: 'Page number (1-based)',
+    example: 1,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Results per page',
+    example: 10,
+  })
+  getDashboardInspections(
+    @Param('dashboardId') dashboardId: string,
+    @Query() filters: FindDashboardInspectionsDto,
+  ) {
+    return this.service.findAllForDashboard(dashboardId, filters);
   }
 
   // POST /dashboards/:dashboardId/folders
