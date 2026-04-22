@@ -1159,7 +1159,10 @@ export class InspectionService {
     // 1️⃣ Check property ownership first
     const property = await this.prisma.property.findUnique({
       where: { id: propertyId },
-      select: { propertyManagerId: true },
+      select: {
+        propertyManagerId: true,
+        dashboard: { select: { id: true } },
+      },
     });
 
     if (!property) {
@@ -1171,7 +1174,7 @@ export class InspectionService {
       if (property.propertyManagerId !== userId) {
         throw new ForbiddenException('This property does not belong to you.');
       }
-      return; // ✅ done
+      return;
     }
 
     // 3️⃣ AUTHORIZED_VIEWER → must have valid access entry
@@ -1193,10 +1196,41 @@ export class InspectionService {
         );
       }
 
-      return; // ✅ done
+      return;
     }
 
-    // 4️⃣ Any other role → deny
+    // 4️⃣ OPERATIONAL → must have an active scheduled inspection on this dashboard
+    if (role === 'OPERATIONAL') {
+      if (!property.dashboard) {
+        throw new NotFoundException('Property dashboard not found.');
+      }
+
+      const assignedInspection =
+        await this.prisma.scheduledInspection.findFirst({
+          where: {
+            dashboardId: property.dashboard.id,
+            assignedTo: userId,
+            status: {
+              in: [
+                ScheduledInspectionStatus.ASSIGNED,
+                ScheduledInspectionStatus.DUE,
+                ScheduledInspectionStatus.IN_PROGRESS,
+                ScheduledInspectionStatus.COMPLETE,
+              ],
+            },
+          },
+        });
+
+      if (!assignedInspection) {
+        throw new ForbiddenException(
+          'You do not have an active scheduled inspection for this property.',
+        );
+      }
+
+      return;
+    }
+
+    // 5️⃣ Any other role → deny
     throw new ForbiddenException('Invalid role for this action.');
   }
 
