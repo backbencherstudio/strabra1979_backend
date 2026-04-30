@@ -35,6 +35,8 @@ export const swaggerUiOptions = {
   swaggerOptions: {
     persistAuthorization: true,
     defaultModelsExpandDepth: -1,
+    filter: true,
+    docExpansion: 'none',
     responseInterceptor: function (response: any) {
       try {
         if (response.url && response.url.indexOf('/auth/login') !== -1) {

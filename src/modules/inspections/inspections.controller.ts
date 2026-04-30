@@ -47,7 +47,12 @@ export class InspectionController {
   // ═════════════════════════════════════════════════════════════════════════
 
   @Get('property/:dashboardId/form')
-  @Roles(Role.ADMIN, Role.OPERATIONAL, Role.AUTHORIZED_VIEWER, Role.PROPERTY_MANAGER)
+  @Roles(
+    Role.ADMIN,
+    Role.OPERATIONAL,
+    Role.AUTHORIZED_VIEWER,
+    Role.PROPERTY_MANAGER,
+  )
   @ApiOperation({
     summary: 'Get inspection form config',
     description:
@@ -162,10 +167,15 @@ export class InspectionController {
     summary:
       'Update an inspection before publishing (Admin and operational only)',
     description:
-      'Allows admin to modify inspection data before publishing.\n\n' +
+      'Allows admin/operational to modify inspection data before publishing.\n\n' +
       'Only works on inspections in `COMPLETE` status (not yet published).\n\n' +
-      'Sends everything as multipart/form-data — same format as submit.\n\n' +
-      '**New files are appended. Existing media files are NOT deleted unless `removeMediaFileIds` is provided.**',
+      '**Everything is optional:**\n' +
+      '- Omit `files` to keep existing media as-is\n' +
+      '- Omit `removeMediaFileIds` to keep all existing files\n' +
+      '- Omit `data` entirely to only upload/remove files\n' +
+      '- Send only the fields you want to change\n\n' +
+      '**File upload rule:** `mediaFieldKeys` only needs keys for NEW files being uploaded. ' +
+      'Already-uploaded file keys are automatically ignored.',
   })
   @ApiParam({ name: 'inspectionId', description: 'CUID of the Inspection' })
   @ApiBody({
@@ -174,7 +184,8 @@ export class InspectionController {
       properties: {
         data: {
           type: 'string',
-          description: 'JSON string of fields to update',
+          description:
+            'Optional JSON string — include only fields you want to update',
           example: JSON.stringify({
             headerData: { inspectionTitle: 'Updated Title' },
             scores: { surfaceCondition: { score: 24, notes: 'Updated notes' } },
@@ -183,12 +194,15 @@ export class InspectionController {
             ],
             nteValue: 8000,
             additionalComments: 'Updated comments',
-            mediaFieldKeys: ['mediaFiles'],
-            removeMediaFileIds: ['cuid1', 'cuid2'],
+            mediaFieldKeys: ['photo_slot_1'], // only keys for NEW files
+            removeMediaFileIds: ['cuid1', 'cuid2'], // only if removing files
+            embedFields: { video_slot: 'https://...' },
           }),
         },
         files: {
           type: 'array',
+          description:
+            'Optional — new files to append. Existing files are untouched.',
           items: { type: 'string', format: 'binary' },
         },
       },
@@ -201,12 +215,16 @@ export class InspectionController {
     @Body('data') rawData: string,
     @Req() req: Request,
   ) {
-    let dto: UpdateInspectionDto;
-    try {
-      dto = JSON.parse(rawData);
-    } catch {
-      throw new BadRequestException('Invalid JSON in "data" field.');
+    let dto: UpdateInspectionDto = {};
+
+    if (rawData) {
+      try {
+        dto = JSON.parse(rawData);
+      } catch {
+        throw new BadRequestException('Invalid JSON in "data" field.');
+      }
     }
+
     return this.service.updateInspection(
       inspectionId,
       req.user.userId,
@@ -214,7 +232,6 @@ export class InspectionController {
       files ?? [],
     );
   }
-
   // ═════════════════════════════════════════════════════════════════════════
   // INSPECTION QUERIES
   // ═════════════════════════════════════════════════════════════════════════

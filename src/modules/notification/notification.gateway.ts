@@ -15,8 +15,13 @@ import appConfig from 'src/config/app.config';
 
 @WebSocketGateway({
   // cors: { origin: appConfig().cors.origins },
-  cors: '*',
-  namespace: '/notifications', // ws://yourserver/notifications
+  // cors: '*',
+  // namespace: '/notifications', // ws://yourserver/notifications
+  namespace: '/notifications',
+  cors: {
+    origin: true,
+    credentials: true,
+  },
 })
 export class NotificationGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect

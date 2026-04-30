@@ -18,12 +18,17 @@ import { TemplateStatus } from 'prisma/generated/enums';
 // ─── Section Types ────────────────────────────────────────────────────────────
 
 export enum SectionType {
-  // Fixed (always present, non-removable)
-  PRIORITY_REPAIR_PLANNING = 'priority_repair_planning',
+  HEADER_INFO = 'header_info',
+  HEALTH_SNAPSHOT = 'health_snapshot',
+  MEDIA_GRID = 'media_grid',
+  TOUR_3D = 'tour_3d',
+  AERIAL_MAP = 'aerial_map',
+  ROOF_HEALTH_RATING = 'roof_health_rating',
+  REPAIR_PLANNING = 'repair_planning', // matches your schema comment
   DOCUMENTS = 'documents',
-  ADDITIONAL_INFORMATION = 'additional_information',
+  ADDITIONAL_INFO = 'additional_info', // matches your schema comment
 
-  // Dynamic — added by admin
+  // Keep these if already present (dynamic section types)
   TEXT_FIELD = 'text_field',
   MEDIA_FIELD = 'media_field',
 }
@@ -229,6 +234,13 @@ export class TemplateSectionDto {
 
 // ─── Create / Update ─────────────────────────────────────────────────────────
 
+export class CreateInitialDashboardTemplate {
+  @ApiProperty({ example: 'Orbit Template' })
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+}
+
 export class CreateDashboardTemplateDto {
   @ApiProperty({ example: 'Standard Roof Inspection Template' })
   @IsString()
@@ -287,3 +299,69 @@ export class AddMediaFieldDto extends MediaFieldConfigDto {
   @IsOptional()
   style?: SectionStyleDto;
 }
+
+// ─── Section Width ─────────────────────────────────────────────────────────────
+
+export enum SectionWidth {
+  FULL       = 'full',
+  HALF       = '1/2',
+  THIRD      = '1/3',
+  TWO_THIRDS = '2/3',
+}
+
+// ─── Per-section update inside the bulk patch ──────────────────────────────────
+
+export class SectionUpdateItemDto {
+  @ApiProperty({
+    description: 'Section type name — stable identifier',
+    example: 'health_snapshot',
+  })
+  @IsString()
+  type: string;
+
+  @ApiPropertyOptional({
+    description: 'New display label for the section',
+    example: 'Roof Overview',
+  })
+  @IsOptional()
+  @IsString()
+  label?: string;
+
+  @ApiPropertyOptional({
+    description: 'Column width for the section',
+    enum: SectionWidth,
+    example: '1/2',
+  })
+  @IsOptional()
+  @IsEnum(SectionWidth)
+  width?: SectionWidth;
+}
+
+
+// ─── Combined reorder + style/label patch ─────────────────────────────────────
+
+export class PatchSectionsDto {
+  @ApiPropertyOptional({
+    type: [String],
+    example: [
+      'header_info',
+      'health_snapshot',
+      'media_grid',
+      'repair_planning',
+      'documents',
+      'additional_info',
+    ],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  order?: string[];
+
+  @ApiPropertyOptional({ type: [SectionUpdateItemDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SectionUpdateItemDto)
+  sections?: SectionUpdateItemDto[];
+}
+

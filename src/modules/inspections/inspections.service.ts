@@ -437,22 +437,27 @@ export class InspectionService {
         `Only COMPLETE inspections can be edited. Current status: ${inspection.scheduledInspection?.status ?? 'unknown'}.`,
       );
 
-    // ── Validate media field keys if new files are being added ─────────────
     const criteria = inspection.dashboard.property?.activeTemplate?.criteria;
     const mediaSlots = (criteria?.mediaFields ??
       []) as unknown as MediaFieldSlot[];
 
-    if (dto.mediaFieldKeys && dto.mediaFieldKeys.length !== files.length)
-      throw new BadRequestException(
-        `mediaFieldKeys length (${dto.mediaFieldKeys.length}) must match files length (${files.length}).`,
-      );
+    // ── Validate mediaFieldKeys — one key per new file ─────────────────────
+    if (files.length > 0) {
+      const providedKeys = dto.mediaFieldKeys ?? [];
 
-    const validSlotKeys = mediaSlots.map((s) => s.key);
-    for (const key of dto.mediaFieldKeys ?? []) {
-      if (!validSlotKeys.includes(key))
+      if (providedKeys.length !== files.length)
         throw new BadRequestException(
-          `mediaFieldKey "${key}" does not exist in criteria.mediaFields.`,
+          `mediaFieldKeys length (${providedKeys.length}) must match files length (${files.length}). ` +
+            `Provide exactly one key per uploaded file. Do not include keys for already-uploaded files.`,
         );
+
+      const validSlotKeys = mediaSlots.map((s) => s.key);
+      for (const key of providedKeys) {
+        if (!validSlotKeys.includes(key))
+          throw new BadRequestException(
+            `mediaFieldKey "${key}" does not exist in criteria.mediaFields.`,
+          );
+      }
     }
 
     // ── Recompute score + health if scores changed ─────────────────────────
@@ -496,102 +501,137 @@ export class InspectionService {
         }))
       : undefined;
 
-    // ── Remove requested media files ───────────────────────────────────────
-    if (dto.removeMediaFileIds?.length) {
-      await this.prisma.mediaFile.deleteMany({
-        where: {
-          id: { in: dto.removeMediaFileIds },
-          inspectionId: inspectionId, // safety — only delete files belonging to this inspection
+    // ── Track uploaded file paths for cleanup on failure ───────────────────
+    const uploadedPaths: string[] = [];
+
+    try {
+      // ── Upload files to disk BEFORE transaction ────────────────────────
+      const preparedFiles: {
+        file: Express.Multer.File;
+        mediaFieldKey: string;
+        storagePath: string;
+      }[] = [];
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const mediaFieldKey = dto.mediaFieldKeys?.[i] ?? 'mediaFiles';
+        const sanitizedName = this._sanitizeFileName(file.originalname);
+        const fileName = `${Date.now()}_${sanitizedName}`;
+        const storagePath = `/inspections/${inspectionId}/${fileName}`;
+
+        await SojebStorage.disk('local').put(storagePath, file.buffer);
+        uploadedPaths.push(storagePath);
+
+        preparedFiles.push({ file, mediaFieldKey, storagePath });
+      }
+
+      // ── Run everything in a single transaction ─────────────────────────
+      const { updated, savedMediaFiles } = await this.prisma.$transaction(
+        async (tx) => {
+          // 1. Remove requested media files
+          if (dto.removeMediaFileIds?.length) {
+            await tx.mediaFile.deleteMany({
+              where: {
+                id: { in: dto.removeMediaFileIds },
+                inspectionId, // safety — only this inspection's files
+              },
+            });
+          }
+
+          const savedMediaFiles = [];
+
+          // 2. Save embed fields
+          for (const [mediaFieldKey, embedUrl] of Object.entries(
+            dto.embedFields ?? {},
+          )) {
+            const slot = mediaSlots.find((s) => s.key === mediaFieldKey);
+            if (!slot || slot.type !== 'embed') continue;
+
+            const mf = await tx.mediaFile.create({
+              data: {
+                inspectionId,
+                fileName: mediaFieldKey,
+                fileType: 'EMBED',
+                url: String(embedUrl),
+                size: null,
+                mediaFieldKey,
+                uploadedAt: new Date(),
+              },
+            });
+            savedMediaFiles.push(mf);
+          }
+
+          // 3. Save new physical file rows (already uploaded to disk)
+          for (const { file, mediaFieldKey, storagePath } of preparedFiles) {
+            const mf = await tx.mediaFile.create({
+              data: {
+                inspectionId,
+                fileName: file.originalname,
+                fileType: this._resolveFileType(file.mimetype),
+                url: storagePath,
+                size: file.size,
+                mediaFieldKey,
+                uploadedAt: new Date(),
+              },
+            });
+            savedMediaFiles.push(mf);
+          }
+
+          // 4. Update inspection row
+          const updated = await tx.inspection.update({
+            where: { id: inspectionId },
+            data: {
+              ...(dto.headerData && { headerData: dto.headerData }),
+              ...(dto.scores && { scores: dto.scores }),
+              ...(repairItems && { repairItems }),
+              ...(dto.nteValue !== undefined && { nteValue: dto.nteValue }),
+              ...(dto.additionalComments !== undefined && {
+                additionalComments: dto.additionalComments,
+              }),
+              ...(dto.scores && { overallScore, healthLabel, remainingLife }),
+            },
+            include: { mediaFiles: true },
+          });
+
+          // 5. Activity log
+          const propertyName =
+            inspection.dashboard.property?.name ?? 'Unknown Property';
+          await tx.activityLog.create({
+            data: {
+              category: ActivityCategory.PROPERTY_DASHBOARD_UPDATE,
+              actor_role: 'ADMIN',
+              message: `Inspection report for ${propertyName} was updated before publishing`,
+            },
+          });
+
+          return { updated, savedMediaFiles };
         },
-      });
-    }
+      );
 
-    // ── Upload new files ───────────────────────────────────────────────────
-    const newMediaFiles = [];
-
-    for (const [mediaFieldKey, embedUrl] of Object.entries(
-      dto.embedFields ?? {},
-    )) {
-      const slot = mediaSlots.find((s) => s.key === mediaFieldKey);
-      if (!slot || slot.type !== 'embed') continue;
-
-      const mf = await this.prisma.mediaFile.create({
+      return {
+        success: true,
+        message: 'Inspection updated successfully',
         data: {
-          inspectionId: inspectionId,
-          fileName: mediaFieldKey,
-          fileType: 'EMBED',
-          url: String(embedUrl),
-          size: null,
-          mediaFieldKey,
-          uploadedAt: new Date(),
+          ...updated,
+          mediaFiles: updated.mediaFiles.map((file) => ({
+            ...file,
+            url:
+              file.fileType === 'EMBED' ? file.url : this._resolveUrl(file.url),
+          })),
         },
-      });
-      newMediaFiles.push(mf);
+      };
+    } catch (error) {
+      // ── Cleanup uploaded files if anything failed ──────────────────────
+      for (const path of uploadedPaths) {
+        try {
+          await SojebStorage.disk('local').delete(path);
+        } catch {
+          // silently ignore cleanup errors
+        }
+      }
+
+      throw error; // re-throw original error
     }
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const mediaFieldKey = dto.mediaFieldKeys?.[i] ?? 'mediaFiles';
-
-      // Save file to local storage
-      const fileName = `${Date.now()}_${file.originalname}`;
-      const storagePath = `/inspections/${inspectionId}/${fileName}`;
-
-      await SojebStorage.disk('local').put(storagePath, file.buffer);
-
-      const mf = await this.prisma.mediaFile.create({
-        data: {
-          inspectionId: inspectionId,
-          fileName: file.originalname,
-          fileType: this._resolveFileType(file.mimetype),
-          url: storagePath, // ← save relative path only
-          size: file.size,
-          mediaFieldKey,
-          uploadedAt: new Date(),
-        },
-      });
-      newMediaFiles.push(mf);
-    }
-
-    // ── Update inspection row ──────────────────────────────────────────────
-    const updated = await this.prisma.inspection.update({
-      where: { id: inspectionId },
-      data: {
-        ...(dto.headerData && { headerData: dto.headerData }),
-        ...(dto.scores && { scores: dto.scores }),
-        ...(repairItems && { repairItems: repairItems }),
-        ...(dto.nteValue !== undefined && { nteValue: dto.nteValue }),
-        ...(dto.additionalComments !== undefined && {
-          additionalComments: dto.additionalComments,
-        }),
-        ...(dto.scores && { overallScore, healthLabel, remainingLife }),
-      },
-      include: { mediaFiles: true },
-    });
-
-    // ── Activity log ───────────────────────────────────────────────────────
-    const propertyName =
-      inspection.dashboard.property?.name ?? 'Unknown Property';
-    await this.prisma.activityLog.create({
-      data: {
-        category: ActivityCategory.PROPERTY_DASHBOARD_UPDATE,
-        actor_role: 'ADMIN',
-        message: `Inspection report for ${propertyName} was updated before publishing`,
-      },
-    });
-
-    return {
-      success: true,
-      message: 'Inspection updated successfully',
-      data: {
-        ...updated,
-        mediaFiles: updated.mediaFiles.map((file) => ({
-          ...file,
-          url:
-            file.fileType === 'EMBED' ? file.url : this._resolveUrl(file.url),
-        })),
-      },
-    };
   }
 
   // ═════════════════════════════════════════════════════════════════════════
@@ -738,7 +778,7 @@ export class InspectionService {
         where,
         skip,
         take: limit,
-        orderBy: { scheduledAt: 'asc' },
+        orderBy: { createdAt: 'desc' },
         include: {
           dashboard: {
             include: {
