@@ -102,7 +102,7 @@ export class NotificationService {
         },
       },
     });
-
+    
     this.gateway.sendToUser(params.receiverId, WS_EVENTS[params.type], {
       notificationId: notification.id,
       type: params.type,
@@ -312,6 +312,7 @@ export class NotificationService {
     propertyName: string;
     dashboardId: string;
   }) {
+    console.log("sending asinging.... property")
     return this.send({
       type: NotificationType.NEW_INSPECTION_ASSIGNED,
       receiverId: params.operationalUserId,

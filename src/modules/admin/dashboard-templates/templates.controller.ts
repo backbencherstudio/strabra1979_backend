@@ -23,7 +23,8 @@ import { DashboardTemplateService } from './templates.service';
 import {
   AddMediaFieldDto,
   AddTextFieldDto,
-  CreateDashboardTemplateDto,
+  CreateInitialDashboardTemplate,
+  PatchSectionsDto,
   UpdateSectionStyleDto,
 } from './dto/create-templates.dto';
 import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
@@ -51,12 +52,9 @@ export class DashboardTemplateController {
   @Post()
   @ApiOperation({
     summary: 'Create a new dashboard template',
-    description:
-      'Creates a reusable dashboard template with sections. ' +
-      'The 3 fixed sections (`priority_repair_planning`, `documents`, `additional_information`) ' +
-      'are always auto-injected at order 100–102 even if omitted from the request.',
+    description: 'Creates a reusable dashboard template with sections',
   })
-  create(@Body() dto: CreateDashboardTemplateDto) {
+  create(@Body() dto: CreateInitialDashboardTemplate) {
     return this.dashboardTemplateService.create(dto);
   }
 
@@ -114,17 +112,18 @@ export class DashboardTemplateController {
 
   // ──────────────────────────────────────────────────────────────────────────
 
-  @Patch(':id/archive')
+  @Patch(':id/toggle-status')
   @ApiOperation({
-    summary: 'Archive a dashboard template',
+    summary: 'Toggle dashboard template status (ACTIVE / INACTIVE)',
     description:
-      'Sets the template status to `ARCHIVED`. The template is preserved ' +
-      'and its existing property assignments remain intact, but it becomes ' +
-      'unavailable for new assignments.',
+      'Toggles the template status between ACTIVE and INACTIVE. ' +
+      'Only one template can be ACTIVE at a time. ' +
+      'When a template is set to ACTIVE, all other templates are automatically set to INACTIVE. ' +
+      'DELETED templates are not affected.',
   })
   @ApiParam({ name: 'id', description: 'Template CUID', example: 'clx5678def' })
-  archive(@Param('id') id: string) {
-    return this.dashboardTemplateService.archive(id);
+  toggleStatus(@Param('id') id: string) {
+    return this.dashboardTemplateService.toggleStatus(id);
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -254,39 +253,68 @@ export class DashboardTemplateController {
 
   // ──────────────────────────────────────────────────────────────────────────
 
-  @Patch(':id/sections/reorder')
+  @Patch(':id/sections')
   @ApiOperation({
-    summary: 'Reorder all sections',
+    summary: 'Reorder and/or update sections in one call',
     description:
-      'Accepts a fully-ordered array of section **type strings**. ' +
-      'All existing section types must be present — missing types return a 400. ' +
-      'This controls what the admin sees in the template drag-and-drop reorder view.',
+      '`order` — full ordered array of type strings for drag-and-drop reorder.\n\n' +
+      '`sections` — per-section `label` / `width` updates using `type` as the key.\n\n' +
+      'Both can be sent together. Reorder runs first, then style patches.',
   })
   @ApiParam({ name: 'id', description: 'Template CUID', example: 'clx5678def' })
   @ApiBody({
-    description: 'Ordered array of section type strings',
     schema: {
       type: 'object',
-      required: ['sections'],
       properties: {
-        sections: {
+        order: {
           type: 'array',
           items: { type: 'string' },
           example: [
-            'text_field',
-            'media_field',
-            'priority_repair_planning',
+            'header_info',
+            'health_snapshot',
+            'media_grid',
+            'aerial_map',
+            'tour_3d',
+            'repair_planning',
+            'roof_health_rating',
+            'additional_info',
             'documents',
-            'additional_information',
           ],
+        },
+        sections: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['type'],
+            properties: {
+              type: {
+                type: 'string',
+                enum: [
+                  'header_info',
+                  'health_snapshot',
+                  'media_grid',
+                  'aerial_map',
+                  'tour_3d',
+                  'repair_planning',
+                  'roof_health_rating',
+                  'additional_info',
+                  'documents',
+                ],
+                example: 'health_snapshot',
+              },
+              label: { type: 'string', example: 'Roof Overview' },
+              width: {
+                type: 'string',
+                enum: ['full', '1/2', '1/3', '2/3'],
+                example: '1/2',
+              },
+            },
+          },
         },
       },
     },
   })
-  reorderSections(
-    @Param('id') id: string,
-    @Body('sections') sections: string[],
-  ) {
-    return this.dashboardTemplateService.reorderSections(id, sections);
+  patchSections(@Param('id') id: string, @Body() dto: PatchSectionsDto) {
+    return this.dashboardTemplateService.patchSections(id, dto);
   }
 }

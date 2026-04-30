@@ -9,7 +9,7 @@ import {
   ValidateNested,
   Min,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class RepairItemDto {
@@ -76,13 +76,24 @@ export class SubmitInspectionDto {
   repairItems?: RepairItemDto[];
 
   @ApiPropertyOptional({
-    example: 7500,
-    description: 'NTE value. Label from criteria.nteConfig.label.',
+    example: 8000,
+    description: 'Updated NTE value. Leave empty if not applicable.',
+    type: Number,
+    nullable: true,
   })
   @IsOptional()
-  @IsNumber()
+  @Transform(({ value }) => {
+    // Convert empty values from Swagger/UI to null
+    if (value === '' || value === null || value === undefined) {
+      return null;
+    }
+
+    const num = Number(value);
+    return isNaN(num) ? value : num;
+  })
+  @IsNumber({}, { message: 'nteValue must be a number' })
   @IsPositive()
-  nteValue?: number;
+  nteValue?: number | null;
 
   @ApiPropertyOptional({ example: 'No active leaks at time of inspection.' })
   @IsOptional()
@@ -163,12 +174,23 @@ export class UpdateInspectionDto {
 
   @ApiPropertyOptional({
     example: 8000,
-    description: 'Updated NTE value.',
+    description: 'Updated NTE value. Leave empty if not applicable.',
+    type: Number,
+    nullable: true,
   })
   @IsOptional()
-  @IsNumber()
+  @Transform(({ value }) => {
+    // Convert empty values from Swagger/UI to null
+    if (value === '' || value === null || value === undefined) {
+      return null;
+    }
+
+    const num = Number(value);
+    return isNaN(num) ? value : num;
+  })
+  @IsNumber({}, { message: 'nteValue must be a number' })
   @IsPositive()
-  nteValue?: number;
+  nteValue?: number | null;
 
   @ApiPropertyOptional({
     example: 'Updated — no active leaks confirmed after re-inspection.',

@@ -5,12 +5,13 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import {
-  CreateDashboardTemplateDto,
   AddTextFieldDto,
   AddMediaFieldDto,
   UpdateSectionStyleDto,
   SectionType,
   TemplateSectionDto,
+  CreateInitialDashboardTemplate,
+  PatchSectionsDto,
 } from './dto/create-templates.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { TemplateStatus } from 'prisma/generated/enums';
@@ -30,30 +31,115 @@ interface StoredSection {
 
 // ─── Fixed sections always injected into every template ───────────────────────
 
-const DEFAULT_FIXED_SECTIONS: StoredSection[] = [
+const DEFAULT_TEMPLATE_SECTIONS: StoredSection[] = [
   {
-    order: 100,
-    type: SectionType.PRIORITY_REPAIR_PLANNING,
+    order: 1,
+    type: SectionType.HEADER_INFO,
+    label: 'Property Info',
+    isDynamic: false,
+    config: {
+      fields: [
+        'propertyName',
+        'address',
+        'propertyType',
+        'inspectionId',
+        'inspectorName',
+        'inspectionDate',
+        'lastInspectionDate',
+      ],
+    },
+    style: { width: 'full' },
+  },
+  {
+    order: 2,
+    type: SectionType.HEALTH_SNAPSHOT,
+    label: 'Roof Health Snapshot',
+    isDynamic: false,
+    config: {
+      showHealthLabel: true,
+      showAverageScore: true,
+      showOverallScore: true,
+      showRemainingLife: true,
+    },
+    style: { width: '1/3' },
+  },
+  {
+    order: 3,
+    type: SectionType.MEDIA_GRID,
+    label: 'Media Files',
+    isDynamic: false,
+    config: {
+      layout: 'grid',
+      maxVisible: 4,
+      allowedTypes: ['PHOTO', 'VIDEO'],
+    },
+    style: { width: '2/3' },
+  },
+  {
+    order: 4,
+    type: SectionType.TOUR_3D,
+    label: '3D Roof Tour',
+    isDynamic: false,
+    config: {
+      embedType: 'iframe',
+      placeholder: 'No 3D tour available for this inspection.',
+    },
+    style: { width: '1/2' },
+  },
+  {
+    order: 5,
+    type: SectionType.AERIAL_MAP,
+    label: 'Aerial Map',
+    isDynamic: false,
+    config: {
+      embedType: 'url',
+      placeholder: 'No aerial map available for this inspection.',
+    },
+    style: { width: '1/2' },
+  },
+  {
+    order: 6,
+    type: SectionType.ROOF_HEALTH_RATING,
+    label: 'Roof Health Rating',
+    isDynamic: false,
+    config: {
+      showNotes: true,
+      showMaxPoints: true,
+    },
+    style: { width: 'full' },
+  },
+  {
+    order: 7,
+    type: SectionType.REPAIR_PLANNING,
     label: 'Priority Repair Planning',
     isDynamic: false,
     config: {},
-    style: {},
+    style: { width: 'full' },
   },
   {
-    order: 101,
+    order: 8,
     type: SectionType.DOCUMENTS,
     label: 'Documents',
     isDynamic: false,
-    config: {},
-    style: {},
+    config: {
+      pageSize: 5,
+      showVersion: true,
+      showFileSize: true,
+      showUploadDate: true,
+      allowInBrowserView: true,
+    },
+    style: { width: 'full' },
   },
   {
-    order: 102,
-    type: SectionType.ADDITIONAL_INFORMATION,
+    order: 9,
+    type: SectionType.ADDITIONAL_INFO,
     label: 'Additional Information',
     isDynamic: false,
-    config: {},
-    style: {},
+    config: {
+      fields: ['nteValue', 'additionalComments'],
+      nteCurrency: 'USD',
+    },
+    style: { width: 'full' },
   },
 ];
 
@@ -85,29 +171,46 @@ export class DashboardTemplateService {
 
   // ─── Create ───────────────────────────────────────────────────────────────
 
-  async create(dto: CreateDashboardTemplateDto) {
-    await this.findCriteriaOrThrow(dto.criteriaId);
+  async create(dto: CreateInitialDashboardTemplate) {
+    // Get the single inspection criteria record
+    const criteria = await this.prisma.inspectionCriteria.findFirst();
+
+    if (!criteria) {
+      throw new NotFoundException(
+        'No inspection criteria found. Please ensure inspection criteria is seeded first.',
+      );
+    }
+
+    // Check if template name is unique
     await this.assertNameIsUnique(dto.name);
 
-    const merged = this.mergeWithFixedSections(dto.sections ?? []);
-    const sections = this.sortSections(merged);
-
-    const template = await this.prisma.dashboardTemplate.create({
-      data: {
-        name: dto.name,
-        criteriaId: dto.criteriaId,
-        status: dto.status ?? TemplateStatus.ACTIVE,
-        sections: toJson(sections),
+    // Deactivate all existing templates
+    await this.prisma.dashboardTemplate.updateMany({
+      where: {
+        status: TemplateStatus.ACTIVE,
       },
-      include: {
-        criteria: true,
-        _count: { select: { properties: true } },
+      data: {
+        status: TemplateStatus.INACTIVE,
       },
     });
 
-    return ok('Dashboard template created successfully', template);
-  }
+    // Create new template with ACTIVE status
+    const template = await this.prisma.dashboardTemplate.create({
+      data: {
+        name: dto.name,
+        criteriaId: criteria.id,
+        status: TemplateStatus.ACTIVE,
+        sections: toJson(DEFAULT_TEMPLATE_SECTIONS), // Pre-populate with default sections
+      },
+    });
 
+    // Return only the needed fields
+    return ok('Dashboard template created successfully', {
+      id: template.id,
+      name: template.name,
+      status: template.status,
+    });
+  }
   // ─── Find All ─────────────────────────────────────────────────────────────
 
   async findAll(status?: TemplateStatus) {
@@ -327,57 +430,109 @@ export class DashboardTemplateService {
     return ok('Section style updated successfully', updated);
   }
 
-  // ─── Reorder Sections ─────────────────────────────────────────────────────
+  // ─── Update Section Layout (width / label) ────────────────────────────────────
 
-  async reorderSections(id: string, orderedTypes: string[]) {
+  async patchSections(id: string, dto: PatchSectionsDto) {
     const template = await this.findOne(id);
-    const sections = fromJson(template.sections);
+    let sections = fromJson(template.sections);
 
-    if (orderedTypes.length !== sections.length) {
-      throw new BadRequestException(
-        `orderedTypes must include all ${sections.length} section types`,
-      );
+    // ── Step 1: reorder ──────────────────────────────────────────────────────
+    if (dto.order) {
+      for (const type of dto.order) {
+        if (!sections.find((s) => s.type === type)) {
+          throw new NotFoundException(`Section type "${type}" not found`);
+        }
+      }
+
+      const orderedTypes = new Set(dto.order);
+
+      const reordered = dto.order.map((type, index) => ({
+        ...sections.find((s) => s.type === type)!,
+        order: index + 1,
+      }));
+
+      const rest = sections
+        .filter((s) => !orderedTypes.has(s.type))
+        .map((s, i) => ({ ...s, order: reordered.length + i + 1 }));
+
+      sections = [...reordered, ...rest];
     }
 
-    const sectionMap = new Map(sections.map((s) => [s.type, s]));
+    // ── Step 2: label / width ────────────────────────────────────────────────
+    if (dto.sections?.length) {
+      for (const patch of dto.sections) {
+        const sectionIndex = sections.findIndex((s) => s.type === patch.type);
 
-    const reordered = orderedTypes.map((type, index) => {
-      const section = sectionMap.get(type as SectionType);
-      if (!section) {
-        throw new NotFoundException(
-          `Section type "${type}" not found in this template`,
-        );
+        if (sectionIndex === -1) {
+          throw new NotFoundException(`Section type "${patch.type}" not found`);
+        }
+
+        const section = { ...sections[sectionIndex] };
+
+        if (patch.width !== undefined) {
+          section.style = { ...section.style, width: patch.width };
+        }
+
+        if (patch.label !== undefined) {
+          section.label = patch.label;
+          if (section.config?.label !== undefined) {
+            section.config = { ...section.config, label: patch.label };
+          }
+        }
+
+        sections[sectionIndex] = section;
       }
-      return { ...section, order: index + 1 };
-    });
+    }
 
     const updated = await this.prisma.dashboardTemplate.update({
       where: { id },
-      data: { sections: toJson(reordered) },
-      include: {
-        criteria: true,
-        _count: { select: { properties: true } },
-      },
+      data: { sections: toJson(sections) },
+      include: { criteria: true, _count: { select: { properties: true } } },
     });
 
-    return ok('Sections reordered successfully', updated);
+    return ok('Sections updated successfully', updated);
   }
 
-  // ─── Archive ──────────────────────────────────────────────────────────────
+  // ─── Toggle Status ──────────────────────────────────────────────────────────────
 
-  async archive(id: string) {
-    await this.findOne(id);
+  async toggleStatus(id: string) {
+    const template = await this.findOne(id);
 
-    const updated = await this.prisma.dashboardTemplate.update({
-      where: { id },
-      data: { status: TemplateStatus.INACTIVE },
-      include: {
-        criteria: true,
-        _count: { select: { properties: true } },
-      },
+    return await this.prisma.$transaction(async (tx) => {
+      // If currently ACTIVE → make it INACTIVE
+      if (template.status === TemplateStatus.ACTIVE) {
+        const updated = await tx.dashboardTemplate.update({
+          where: { id },
+          data: { status: TemplateStatus.INACTIVE },
+          include: {
+            criteria: true,
+            _count: { select: { properties: true } },
+          },
+        });
+
+        return ok('Dashboard template set to INACTIVE', updated);
+      }
+
+      // If currently INACTIVE → make this ACTIVE and others INACTIVE
+      await tx.dashboardTemplate.updateMany({
+        where: {
+          id: { not: id },
+          status: TemplateStatus.ACTIVE,
+        },
+        data: { status: TemplateStatus.INACTIVE },
+      });
+
+      const updated = await tx.dashboardTemplate.update({
+        where: { id },
+        data: { status: TemplateStatus.ACTIVE },
+        include: {
+          criteria: true,
+          _count: { select: { properties: true } },
+        },
+      });
+
+      return ok('Dashboard template set to ACTIVE', updated);
     });
-
-    return ok('Dashboard template archived successfully', updated);
   }
 
   // ─── Duplicate ────────────────────────────────────────────────────────────
@@ -450,7 +605,7 @@ export class DashboardTemplateService {
 
     const existingTypes = new Set(result.map((s) => s.type));
 
-    for (const fixed of DEFAULT_FIXED_SECTIONS) {
+    for (const fixed of DEFAULT_TEMPLATE_SECTIONS) {
       if (!existingTypes.has(fixed.type)) {
         result.push({ ...fixed });
       }

@@ -80,7 +80,7 @@ export class AuthService {
     } catch (error) {
       return {
         success: false,
-        message: error.message,
+        message: (error as Error).message,
       };
     }
   }
@@ -202,7 +202,7 @@ export class AuthService {
     } catch (error) {
       return {
         success: false,
-        message: error?.message,
+        message: (error as Error).message,
       };
     }
   }
