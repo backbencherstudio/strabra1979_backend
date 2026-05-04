@@ -352,6 +352,7 @@ export class InspectionService {
         propertyId: dashboard.property?.id ?? dashboardId,
         propertyName,
         inspectionId: inspection.id,
+        dashboardId
       });
 
       const accesses = await this.prisma.propertyAccess.findMany({

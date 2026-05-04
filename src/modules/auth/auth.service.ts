@@ -328,39 +328,52 @@ export class AuthService {
   }
 
   async forgotPassword(email: string) {
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const start = Date.now();
 
-    if (!user) {
-      throw new NotFoundException('User not found');
+    try {
+      const user = await this.prisma.user.findUnique({ where: { email } });
+
+      if (user) {
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const hashedOtp = await bcrypt.hash(otp, 10);
+
+        await this.prisma.user.update({
+          where: { email },
+          data: {
+            password_reset_otp: hashedOtp,
+            password_reset_otp_expires_at: new Date(
+              Date.now() + 10 * 60 * 1000,
+            ),
+            password_reset_token: null,
+            password_reset_verified_at: null,
+          },
+        });
+
+        // Don't await — fire and forget so mail failure doesn't leak user existence
+        this.mailService
+          .sendOtpCodeToEmail({ email: user.email, name: user.username, otp })
+          .catch((err) => {
+            // Log internally but never surface to caller
+            console.error('OTP mail failed silently:', err);
+          });
+      }
+    } catch (err) {
+      // Log but swallow — never leak whether email exists or any internal error
+      console.error('forgotPassword internal error:', err);
+    } finally {
+      // ── Constant-time response ─────────────────────────────────────────
+      // Ensure total response time is always >= MIN_DELAY regardless of
+      // how long the DB + bcrypt took, preventing timing-based enumeration
+      const MIN_DELAY = 1000; // 500ms was too short; bcrypt alone can exceed it
+      const elapsed = Date.now() - start;
+      const remaining = MIN_DELAY - elapsed;
+      if (remaining > 0) await new Promise((res) => setTimeout(res, remaining));
     }
-
-    const otp = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit
-    const hashedOtp = await bcrypt.hash(otp, 10);
-
-    await this.prisma.user.update({
-      where: { email },
-      data: {
-        password_reset_otp: hashedOtp,
-        password_reset_otp_expires_at: new Date(Date.now() + 10 * 60 * 1000),
-        password_reset_token: null,
-        password_reset_verified_at: null,
-      },
-    });
-
-    console.log(otp);
-
-    await this.mailService.sendOtpCodeToEmail({
-      email: user.email,
-      name: user.username,
-      otp,
-    });
 
     return {
       success: true,
-      message: 'Otp code sent to your email address.',
-      data: {
-        otp,
-      },
+      message:
+        'If an account with this email exists, an OTP has been sent to the registered email address.',
     };
   }
 

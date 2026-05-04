@@ -2,10 +2,8 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import helmet from 'helmet';
+import { SwaggerModule } from '@nestjs/swagger';
 import { join } from 'path';
-// import express from 'express';
 // internal imports
 import { AppModule } from './app.module';
 import appConfig from './config/app.config';
@@ -15,6 +13,11 @@ import {
   buildSwaggerOptions,
   swaggerUiOptions,
 } from './common/swagger/swagger-auth';
+import { SecurityMiddleware } from './common/middleware/security.middleware';
+import { SuspiciousPathMiddleware } from './common/middleware/suspicious-path.middleware';
+import { createRateLimiter } from './common/middleware/rate-limit.middleware';
+import { NextFunction, Request, Response } from 'express';
+import { helmetConfig } from './common/config/helmet.cofig';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -23,34 +26,34 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
   app.enableCors({
-    origin: true,
+    origin:
+      appConfig().app.node_env === 'production'
+        ? ['https://roofwellnesshub.com']
+        : true,
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    maxAge: 86400,
   });
-  app.use(
-    helmet({
-      crossOriginResourcePolicy: { policy: 'cross-origin' }, // ← add this
-      contentSecurityPolicy: {
-        directives: {
-          defaultSrc: [`'self'`],
-          connectSrc: [`'self'`, `https:`, `http:`],
-          scriptSrc: [`'self'`, `'unsafe-inline'`, `'unsafe-eval'`],
-          styleSrc: [`'self'`, `'unsafe-inline'`],
-          imgSrc: [`'self'`, `data:`, `https:`, `http:`], // ← also add http: here
-          workerSrc: [`'self'`, `blob:`],
-          frameSrc: [`'self'`],
-        },
-      },
-      crossOriginEmbedderPolicy: false,
-    }),
+
+  // ─── Security Middleware ───────────────────────────────────────────
+  const securityMiddleware = new SecurityMiddleware();
+  const suspiciousPathMiddleware = new SuspiciousPathMiddleware();
+
+  app.use((req: Request, res: Response, next: NextFunction) =>
+    securityMiddleware.use(req, res, next),
   );
-  // Enable it, if special charactrers not encoding perfectly
-  // app.use((req, res, next) => {
-  //   // Only force content-type for specific API routes, not Swagger or assets
-  //   if (req.path.startsWith('/api') && !req.path.startsWith('/api/docs')) {
-  //     res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  //   }
-  //   next();
-  // });
+  app.use((req: Request, res: Response, next: NextFunction) =>
+    suspiciousPathMiddleware.use(req, res, next),
+  );
+
+  // ─── Rate Limiters ────────────────────────────────────────────────
+  app.use('/api', createRateLimiter('GENERAL'));
+  app.use('/api/auth', createRateLimiter('AUTH'));
+
+  // ─── Helmet ───────────────────────────────────────────────────────
+  app.use(helmetConfig());
+
   app.useStaticAssets(join(process.cwd(), 'public'), {
     index: false,
     prefix: '/public',
@@ -62,20 +65,18 @@ async function bootstrap() {
   );
   app.useGlobalFilters(new CustomExceptionFilter());
 
-  // storage setup
+  // ─── Storage Setup ────────────────────────────────────────────────
   SojebStorage.config({
     driver: 'local',
     connection: {
       rootUrl: appConfig().storageUrl.rootUrl,
       publicUrl: appConfig().storageUrl.rootUrlPublic,
-      // aws s3
       awsBucket: appConfig().fileSystems.s3.bucket,
       awsAccessKeyId: appConfig().fileSystems.s3.key,
       awsSecretAccessKey: appConfig().fileSystems.s3.secret,
       awsDefaultRegion: appConfig().fileSystems.s3.region,
       awsEndpoint: appConfig().fileSystems.s3.endpoint,
       minio: true,
-      // google cloud storage
       gcpProjectId: appConfig().fileSystems.gcs.projectId,
       gcpKeyFile: appConfig().fileSystems.gcs.keyFile,
       gcpApiEndpoint: appConfig().fileSystems.gcs.apiEndpoint,
@@ -83,11 +84,9 @@ async function bootstrap() {
     },
   });
 
-  // swagger
+  // ─── Swagger ──────────────────────────────────────────────────────
   const document = SwaggerModule.createDocument(app, buildSwaggerOptions());
-
   SwaggerModule.setup('api/docs', app, document, swaggerUiOptions);
-  // end swagger
 
   await app.listen(process.env.PORT ?? 4000, '0.0.0.0');
 }
