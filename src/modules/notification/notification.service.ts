@@ -436,6 +436,7 @@ export class NotificationService {
     propertyId: string;
     propertyName: string;
     inspectionId: string;
+    dashboardId: string;
   }) {
     for (const adminId of params.adminIds) {
       await this.send({
@@ -448,6 +449,7 @@ export class NotificationService {
           propertyId: params.propertyId,
           propertyName: params.propertyName,
           inspectionId: params.inspectionId,
+          dashboardId: params.dashboardId,
           link: {
             label: 'View Report',
             href: `/inspections/${params.inspectionId}`,

@@ -9,30 +9,26 @@ import { MailProcessor } from './processors/mail.processor';
 @Global()
 @Module({
   imports: [
-    MailerModule.forRoot({
-      // transport: 'smtps://user@example.com:topsecret@smtp.example.com',
-      // or
-      transport: {
-        host: appConfig().mail.host,
-        port: +appConfig().mail.port,
-        secure: false,
-        auth: {
-          user: appConfig().mail.user,
-          pass: appConfig().mail.password,
+    MailerModule.forRootAsync({
+      useFactory: () => ({
+        transport: {
+          host: appConfig().mail.host,
+          port: +appConfig().mail.port,
+          secure: false,
+          auth: {
+            user: appConfig().mail.user,
+            pass: appConfig().mail.password,
+          },
         },
-      },
-      defaults: {
-        from: appConfig().mail.from,
-      },
-      template: {
-        // dir: join(__dirname, 'templates'),
-        dir: process.cwd() + '/dist/mail/templates/',
-        // adapter: new HandlebarsAdapter(), // or new PugAdapter() or new EjsAdapter()
-        adapter: new EjsAdapter(),
-        options: {
-          // strict: true,
+        defaults: {
+          from: appConfig().mail.from,
         },
-      },
+        template: {
+          dir: process.cwd() + '/dist/mail/templates/',
+          adapter: new EjsAdapter(),
+          options: {},
+        },
+      }),
     }),
     BullModule.registerQueue({
       name: 'mail-queue',
