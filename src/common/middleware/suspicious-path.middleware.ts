@@ -12,6 +12,11 @@ export class SuspiciousPathMiddleware implements NestMiddleware {
     const userAgent = req.headers['user-agent'] || '';
     const ip = req.ip || req.socket.remoteAddress;
 
+    const whitelistedPaths = ['/api/docs', '/api/health'];
+    if (whitelistedPaths.some((p) => path.startsWith(p))) {
+      return next();
+    }
+
     // Block suspicious paths
     if (SUSPICIOUS_PATHS.some((pattern) => pattern.test(path))) {
       console.log(

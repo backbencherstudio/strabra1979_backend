@@ -14,17 +14,20 @@ import {
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Role } from 'src/common/guard/role/role.enum';
 import {
+  AccessRequestStatus,
   ActivityCategory,
   ScheduledInspectionStatus,
 } from 'prisma/generated/enums';
 import { NotificationService } from '../notification/notification.service';
 import appConfig from 'src/config/app.config';
+import { MailService } from 'src/mail/mail.service';
 
 @Injectable()
 export class PropertyDashboardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationService,
+    private readonly mailService: MailService,
   ) {}
 
   // ═════════════════════════════════════════════════════════════════════════
@@ -231,6 +234,7 @@ export class PropertyDashboardService {
         propertyId: result.property.id,
         propertyName: result.property.name,
         dashboardId: result.dashboard.id,
+        inspectionId: result.scheduled?.inspectionId,
       });
     }
 
@@ -241,6 +245,7 @@ export class PropertyDashboardService {
         propertyId: result.property.id,
         propertyName: result.property.name,
         dashboardId: result.dashboard.id,
+        inspectionId: result.scheduled?.inspectionId,
       });
     }
 
@@ -267,6 +272,7 @@ export class PropertyDashboardService {
       sortOrder?: 'asc' | 'desc';
       dateFrom?: string;
       dateTo?: string;
+      view?: string;
     },
   ) {
     const {
@@ -278,6 +284,7 @@ export class PropertyDashboardService {
       sortOrder = 'desc',
       dateFrom,
       dateTo,
+      view = 'all',
     } = filters;
 
     const skip = (page - 1) * limit;
@@ -297,12 +304,6 @@ export class PropertyDashboardService {
         },
       }),
     };
-
-    // PM only sees their own properties — no PropertyAccess check needed here
-    // because findAll is scoped by propertyManagerId already
-    if (requestingUserRole === Role.PROPERTY_MANAGER) {
-      where.propertyManagerId = requestingUserId;
-    }
 
     const orderBy = { [sortBy]: sortOrder };
 
@@ -331,11 +332,8 @@ export class PropertyDashboardService {
           : null,
       }));
 
-    if (
-      requestingUserRole === Role.ADMIN ||
-      requestingUserRole === Role.PROPERTY_MANAGER ||
-      requestingUserRole === Role.AUTHORIZED_VIEWER
-    ) {
+    // ── ADMIN ─────────────────────────────────────────────────────────────
+    if (requestingUserRole === Role.ADMIN) {
       const [properties, total] = await this.prisma.$transaction([
         this.prisma.property.findMany({
           where,
@@ -369,6 +367,130 @@ export class PropertyDashboardService {
       };
     }
 
+    // ── PROPERTY MANAGER ──────────────────────────────────────────────────
+    if (requestingUserRole === Role.PROPERTY_MANAGER) {
+      where.propertyManagerId = requestingUserId;
+
+      const [properties, total] = await this.prisma.$transaction([
+        this.prisma.property.findMany({
+          where,
+          skip,
+          take: limit,
+          orderBy,
+          include: {
+            propertyManager: {
+              select: { id: true, username: true, email: true, avatar: true },
+            },
+            dashboard: dashboardSelect,
+          },
+        }),
+        this.prisma.property.count({ where }),
+      ]);
+
+      const total_pages = Math.ceil(total / limit);
+
+      return {
+        success: true,
+        message: 'Properties retrieved successfully',
+        data: mapProperties(properties),
+        meta: {
+          total,
+          page,
+          limit,
+          total_pages,
+          has_next_page: page < total_pages,
+          has_prev_page: page > 1,
+        },
+      };
+    }
+
+    // ── AUTHORIZED VIEWER ─────────────────────────────────────────────────
+    if (requestingUserRole === Role.AUTHORIZED_VIEWER) {
+      // Tab 1 — "My Properties": only properties this viewer has active access to
+      if (view === 'assigned') {
+        where.accesses = {
+          some: {
+            userId: requestingUserId,
+            revokedAt: null,
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+          },
+        };
+      }
+      // Tab 2 — "All Properties": no extra where filter, but each row gets viewerAccess shape
+
+      const [properties, total] = await this.prisma.$transaction([
+        this.prisma.property.findMany({
+          where,
+          skip,
+          take: limit,
+          orderBy,
+          include: {
+            propertyManager: {
+              select: { id: true, username: true, email: true, avatar: true },
+            },
+            dashboard: dashboardSelect,
+            accesses: {
+              where: { userId: requestingUserId },
+              select: {
+                id: true,
+                grantedAt: true,
+                expiresAt: true,
+                revokedAt: true,
+              },
+            },
+            accessRequests: {
+              where: { requesterId: requestingUserId },
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              select: { id: true, status: true, createdAt: true },
+            },
+          },
+        }),
+        this.prisma.property.count({ where }),
+      ]);
+
+      const total_pages = Math.ceil(total / limit);
+
+      const data = properties.map((p) => {
+        const access = p.accesses?.[0] ?? null;
+        const request = p.accessRequests?.[0] ?? null;
+
+        const isGranted =
+          access &&
+          !access.revokedAt &&
+          (!access.expiresAt || access.expiresAt > new Date());
+
+        return {
+          ...mapProperties([p])[0],
+          accesses: undefined,
+          accessRequests: undefined,
+          viewerAccess: {
+            hasAccess: !!isGranted,
+            accessId: access?.id ?? null,
+            expiresAt: access?.expiresAt ?? null,
+            pendingRequest:
+              request?.status === AccessRequestStatus.PENDING ? request : null,
+            lastRequest: request ?? null,
+          },
+        };
+      });
+
+      return {
+        success: true,
+        message: 'Properties retrieved successfully',
+        data,
+        meta: {
+          total,
+          page,
+          limit,
+          total_pages,
+          has_next_page: page < total_pages,
+          has_prev_page: page > 1,
+        },
+      };
+    }
+
+    // ── Fallback (should never reach here if guards are correct) ──────────
     return {
       success: true,
       data: [],
@@ -520,7 +642,6 @@ export class PropertyDashboardService {
     const { propertyId, property } =
       await this._assertDashboardExists(dashboardId);
 
-    // ── Access check ──────────────────────────────────────────────────────
     await this._assertPropertyAccess(propertyId, requesterId, requesterRole);
 
     const assignee = await this.prisma.user.findFirst({
@@ -542,7 +663,6 @@ export class PropertyDashboardService {
       },
     });
 
-    // ── Grant PropertyAccess to assignee if not already ───────────────────
     await this.prisma.propertyAccess.upsert({
       where: { propertyId_userId: { propertyId, userId: assignee.id } },
       create: {
@@ -576,7 +696,56 @@ export class PropertyDashboardService {
       propertyId,
       propertyName: property.name,
       dashboardId,
+      inspectionId: scheduled.inspectionId,
     });
+
+    // ── Email notification ────────────────────────────────────────────────
+    const requester = await this.prisma.user.findUnique({
+      where: { id: requesterId },
+      select: { username: true },
+    });
+
+    const formattedDate = new Date(dto.scheduledAt).toLocaleDateString(
+      'en-US',
+      {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      },
+    );
+
+    const emailPayload = {
+      assignedBy: requester?.username ?? 'Admin',
+      propertyName: property.name,
+      propertyAddress: property.address,
+      scheduledAt: formattedDate,
+      dashboardUrl: appConfig().app.client_app_url,
+      platformName: appConfig().app.name ?? 'Platform',
+    };
+
+    // Email to assignee (operational)
+    this.mailService.sendInspectionAssigned({
+      email: assignee.email,
+      username: assignee.username ?? assignee.email,
+      ...emailPayload,
+    });
+
+    // Email to property manager if assigned
+    if (property.propertyManagerId) {
+      const pm = await this.prisma.user.findUnique({
+        where: { id: property.propertyManagerId },
+        select: { email: true, username: true },
+      });
+
+      if (pm?.email) {
+        this.mailService.sendInspectionAssigned({
+          email: pm.email,
+          username: pm.username ?? pm.email,
+          ...emailPayload,
+        });
+      }
+    }
 
     return {
       success: true,
@@ -594,8 +763,7 @@ export class PropertyDashboardService {
     dto: AssignPropertyUserDto,
     adminId: string,
   ) {
-    const { propertyId, property } =
-      await this._assertDashboardExists(dashboardId);
+    const { propertyId } = await this._assertDashboardExists(dashboardId);
 
     const user = await this.prisma.user.findFirst({
       where: { id: dto.userId, isDeleted: false },
@@ -605,15 +773,71 @@ export class PropertyDashboardService {
     if (dto.expiresAt && new Date(dto.expiresAt) <= new Date())
       throw new BadRequestException('expiresAt must be a future date.');
 
-    // ── Property Manager ───────────────────────────────────────────────────
     if (user.role === Role.PROPERTY_MANAGER) {
+      const platformName = appConfig().app.name ?? 'Platform';
+      const clientUrl = appConfig().app.client_app_url;
+
+      // ── Fetch current property to get previous PM ────────────────────
+      const currentProperty = await this.prisma.property.findUnique({
+        where: { id: propertyId },
+        select: {
+          propertyManagerId: true,
+          name: true,
+          address: true,
+        },
+      });
+
+      const previousPmId = currentProperty?.propertyManagerId;
+
+      // ── Remove previous PM's access if different from new one ────────
+      if (previousPmId && previousPmId !== dto.userId) {
+        const previousPm = await this.prisma.user.findUnique({
+          where: { id: previousPmId },
+          select: { email: true, username: true },
+        });
+
+        // Revoke PropertyAccess
+        await this.prisma.propertyAccess.updateMany({
+          where: { propertyId, userId: previousPmId },
+          data: {
+            revokedAt: new Date(),
+            revokedBy: adminId,
+          },
+        });
+
+        // Clear propertyManagerId on property
+        await this.prisma.property.update({
+          where: { id: propertyId },
+          data: { propertyManagerId: null },
+        });
+
+        // Notify previous PM by email
+        if (previousPm?.email) {
+          this.mailService.sendDashboardUnassigned({
+            email: previousPm.email,
+            username: previousPm.username ?? previousPm.email,
+            propertyName: currentProperty.name,
+            propertyAddress: currentProperty.address,
+            platformName,
+          });
+        }
+
+        await this.prisma.activityLog.create({
+          data: {
+            category: ActivityCategory.USER_ACCESS,
+            actor_role: Role.PROPERTY_MANAGER,
+            message: `${previousPm?.username ?? previousPmId} was removed as property manager of ${currentProperty.name}`,
+          },
+        });
+      }
+
+      // ── Assign new PM ────────────────────────────────────────────────
       const updated = await this.prisma.property.update({
         where: { id: propertyId },
         data: { propertyManagerId: dto.userId },
       });
 
-      // ── Also upsert PropertyAccess for PM ─────────────────────────────
-      await this.prisma.propertyAccess.upsert({
+      this.prisma.propertyAccess.upsert({
         where: { propertyId_userId: { propertyId, userId: dto.userId } },
         create: {
           propertyId,
@@ -627,6 +851,22 @@ export class PropertyDashboardService {
           grantedBy: adminId,
           grantedAt: new Date(),
         },
+      });
+
+      const admin = await this.prisma.user.findUnique({
+        where: { id: adminId },
+        select: { username: true },
+      });
+
+      // ── Email new PM ─────────────────────────────────────────────────
+      this.mailService.sendDashboardAssigned({
+        email: user.email,
+        username: user.username ?? user.email,
+        assignedBy: admin?.username ?? 'Admin',
+        propertyName: updated.name,
+        propertyAddress: currentProperty.address,
+        dashboardUrl: `${clientUrl}`,
+        platformName,
       });
 
       await this.prisma.activityLog.create({
@@ -651,60 +891,7 @@ export class PropertyDashboardService {
         data: updated,
       };
     }
-
-    // ── Other roles (AV, Operational) ─────────────────────────────────────
-    const access = await this.prisma.propertyAccess.upsert({
-      where: { propertyId_userId: { propertyId, userId: dto.userId } },
-      create: {
-        propertyId,
-        userId: dto.userId,
-        grantedBy: adminId,
-        grantedAt: new Date(),
-        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
-        revokedAt: null,
-      },
-      update: {
-        grantedBy: adminId,
-        grantedAt: new Date(),
-        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
-        revokedAt: null,
-        revokedBy: null,
-      },
-    });
-
-    await this.prisma.activityLog.create({
-      data: {
-        category: ActivityCategory.USER_ACCESS,
-        actor_role: user.role,
-        message: dto.expiresAt
-          ? `${user.username} was given view access to ${property.name} dashboard until ${new Date(dto.expiresAt).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`
-          : `${user.username} was given view access to ${property.name} dashboard`,
-      },
-    });
-
-    const admin = await this.prisma.user.findUnique({
-      where: { id: adminId },
-      select: { username: true },
-    });
-
-    await this.notifications.dashboardShared({
-      userId: user.id,
-      sharedById: adminId,
-      sharerName: admin?.username ?? 'Admin',
-      propertyId,
-      propertyName: property.name,
-      dashboardId,
-    });
-
-    return {
-      success: true,
-      message: dto.expiresAt
-        ? `Access granted — expires ${new Date(dto.expiresAt).toDateString()}`
-        : 'User access granted successfully',
-      data: access,
-    };
   }
-
   // ═════════════════════════════════════════════════════════════════════════
   // 7. GET ACCESS LIST
   // ═════════════════════════════════════════════════════════════════════════
@@ -713,13 +900,35 @@ export class PropertyDashboardService {
     dashboardId: string,
     requesterId: string,
     requesterRole: string,
+    page: number = 1,
+    limit: number = 10,
+    search?: string,
   ) {
     const { propertyId } = await this._assertDashboardExists(dashboardId);
 
     // ── Access check ──────────────────────────────────────────────────────
     await this._assertPropertyAccess(propertyId, requesterId, requesterRole);
 
-    const [property, accesses] = await Promise.all([
+    const skip = (page - 1) * limit;
+
+    // Build where clause for accesses
+    const whereCondition: any = {
+      propertyId,
+      revokedAt: null,
+    };
+
+    // Add search filter if provided
+    if (search) {
+      whereCondition.user = {
+        OR: [
+          { username: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+        ],
+      };
+    }
+
+    // Fetch property info and paginated accesses in parallel
+    const [property, accesses, totalAccesses] = await Promise.all([
       this.prisma.property.findUnique({
         where: { id: propertyId },
         select: {
@@ -738,7 +947,9 @@ export class PropertyDashboardService {
         },
       }),
       this.prisma.propertyAccess.findMany({
-        where: { propertyId, revokedAt: null },
+        where: whereCondition,
+        skip,
+        take: limit,
         include: {
           user: {
             select: {
@@ -752,7 +963,10 @@ export class PropertyDashboardService {
         },
         orderBy: { grantedAt: 'desc' },
       }),
+      this.prisma.propertyAccess.count({ where: whereCondition }),
     ]);
+
+    const totalPages = Math.ceil(totalAccesses / limit);
 
     return {
       success: true,
@@ -767,6 +981,14 @@ export class PropertyDashboardService {
           expiresAt: a.expiresAt ?? null,
           user: a.user,
         })),
+      },
+      meta: {
+        total: totalAccesses,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
       },
     };
   }

@@ -49,7 +49,8 @@ model User {
   access_revoked_by String? // admin user id who revoked
 
   // soft delete flag
-  isDeleted Boolean @default(false)
+  isDeleted     Boolean @default(false)
+  deletedReason String?
 
   // ── Personal Notification Preferences 
   // Property Manager (role = PROPERTY_MANAGER)
@@ -208,11 +209,12 @@ model Property {
   updatedAt        DateTime       @updatedAt
 
   // Relations
-  propertyManager User?                   @relation("PropertyManager", fields: [propertyManagerId], references: [id])
-  activeTemplate  DashboardTemplate?      @relation(fields: [activeTemplateId], references: [id])
-  dashboard       PropertyDashboard?
-  accesses        PropertyAccess[]
-  accessRequests  PropertyAccessRequest[]
+  propertyManager    User?                   @relation("PropertyManager", fields: [propertyManagerId], references: [id])
+  activeTemplate     DashboardTemplate?      @relation(fields: [activeTemplateId], references: [id])
+  dashboard          PropertyDashboard?
+  accesses           PropertyAccess[]
+  accessRequests     PropertyAccessRequest[]
+  pendingInvitations PendingInvitation[]
 
   @@map("properties")
 }
@@ -426,6 +428,25 @@ model PropertyAccessRequest {
   @@map("property_access_requests")
 }
 
+model PendingInvitation {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  email      String
+  propertyId String
+  invitedBy  String // user id of PM or Admin
+  token      String @unique // secure random token
+
+  acceptedAt DateTime?
+  acceptedBy String? // user id once they sign up
+
+  property Property @relation(fields: [propertyId], references: [id])
+
+  @@unique([email, propertyId])
+  @@map("pending_invitations")
+}
+
 model ActivityLog {
   id         String           @id @default(cuid())
   created_at DateTime         @default(now())
@@ -472,7 +493,7 @@ model Notification {
 
   entity_id String?
 
-  metadata Json?  // Stores requestId, actions, etc.
+  metadata Json? // Stores requestId, actions, etc.
 
   @@map("notifications")
 }

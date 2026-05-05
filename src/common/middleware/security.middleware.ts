@@ -15,6 +15,11 @@ export class SecurityMiddleware implements NestMiddleware {
       req.socket.remoteAddress ||
       (req.headers['x-forwarded-for'] as string);
 
+    const whitelistedPaths = ['/api/docs', '/api/health'];
+    if (whitelistedPaths.some((p) => path.startsWith(p))) {
+      return next();
+    }
+
     // 1. Block suspicious paths (config files, git, ssh, etc.)
     if (SUSPICIOUS_PATHS.some((pattern) => pattern.test(path))) {
       console.log(

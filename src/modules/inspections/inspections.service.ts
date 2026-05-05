@@ -352,7 +352,7 @@ export class InspectionService {
         propertyId: dashboard.property?.id ?? dashboardId,
         propertyName,
         inspectionId: inspection.id,
-        dashboardId
+        dashboardId,
       });
 
       const accesses = await this.prisma.propertyAccess.findMany({
@@ -370,6 +370,7 @@ export class InspectionService {
           updatedById: inspectorId,
           propertyId: dashboard.property?.id ?? dashboardId,
           propertyName,
+          inspectionId: inspection.id,
           dashboardId,
           changeNote: 'New inspection report has been submitted',
         });
@@ -762,9 +763,9 @@ export class InspectionService {
   async getAssignedInspections(
     userId: string,
     role: string,
-    filters: { status?: string; page: number; limit: number },
+    filters: { status?: string; search?: string; page: number; limit: number },
   ) {
-    const { status, page, limit } = filters;
+    const { status, search, page, limit } = filters;
     const skip = (page - 1) * limit;
 
     await this._markOverdue(userId);
@@ -772,6 +773,31 @@ export class InspectionService {
     const where: any = {
       assignedTo: userId,
       ...(status && { status }),
+      // Add search condition
+      ...(search && {
+        OR: [
+          {
+            dashboard: {
+              property: {
+                name: {
+                  contains: search,
+                  mode: 'insensitive', // Case-insensitive search
+                },
+              },
+            },
+          },
+          {
+            dashboard: {
+              property: {
+                address: {
+                  contains: search,
+                  mode: 'insensitive',
+                },
+              },
+            },
+          },
+        ],
+      }),
     };
 
     const [scheduled, total] = await this.prisma.$transaction([
@@ -784,7 +810,12 @@ export class InspectionService {
           dashboard: {
             include: {
               property: {
-                select: { name: true, address: true, propertyType: true },
+                select: {
+                  id: true,
+                  name: true,
+                  address: true,
+                  propertyType: true,
+                },
               },
             },
           },
@@ -804,6 +835,7 @@ export class InspectionService {
         scheduledAt: s.scheduledAt,
         dashboardId: s.dashboardId,
         inspectionId: s.inspectionId ?? null,
+        scheduledInspectionId: s.id,
         propertyName: s.dashboard.property.name,
         address: s.dashboard.property.address,
         propertyType: s.dashboard.property.propertyType,
@@ -816,6 +848,7 @@ export class InspectionService {
         total_pages,
         has_next_page: page < total_pages,
         has_prev_page: page > 1,
+        ...(search && { search }), // Include search term in meta if provided
       },
     };
   }

@@ -90,6 +90,10 @@ export class AuthService {
       where: { email: data.email },
     });
 
+    if (foundUser.isDeleted) {
+      throw new BadRequestException('CONTACT_ADMIN');
+    }
+
     if (!foundUser || !foundUser.password) {
       throw new UnauthorizedException('Invalid credentials');
     }
@@ -239,8 +243,15 @@ export class AuthService {
     const existingEmail = await this.prisma.user.findUnique({
       where: { email },
     });
-    if (existingEmail)
+    if (existingEmail) {
+      // CASE 1 — Soft deleted user trying to re-register
+      if (existingEmail.isDeleted) {
+        throw new BadRequestException('CONTACT_ADMIN');
+      }
+
+      // CASE 2 — Normal duplicate
       throw new BadRequestException('Email already registered');
+    }
 
     const existingUsername = await this.prisma.user.findUnique({
       where: { username },
@@ -273,6 +284,44 @@ export class AuthService {
         approved_by: isAdmin ? currentUser.userId : null,
       },
     });
+
+    // ── Redeem any pending invitations for this email ─────────────────
+    const pendingInvites = await this.prisma.pendingInvitation.findMany({
+      where: {
+        email: newUser.email.toLowerCase(),
+        acceptedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    for (const invite of pendingInvites) {
+      await this.prisma.propertyAccess.upsert({
+        where: {
+          propertyId_userId: {
+            propertyId: invite.propertyId,
+            userId: newUser.id,
+          },
+        },
+        create: {
+          propertyId: invite.propertyId,
+          userId: newUser.id,
+          grantedBy: invite.invitedBy,
+        },
+        update: {
+          grantedBy: invite.invitedBy,
+          grantedAt: new Date(),
+          revokedAt: null,
+        },
+      });
+
+      await this.prisma.pendingInvitation.update({
+        where: { id: invite.id },
+        data: {
+          acceptedAt: new Date(),
+          acceptedBy: newUser.id,
+        },
+      });
+    }
 
     // ── Fire notifications ────────────────────────────────────────────────
     const admins = await this.prisma.user.findMany({
@@ -307,6 +356,32 @@ export class AuthService {
         newUserId: newUser.id,
         userName,
         userRole: newUser.role,
+      });
+    }
+
+    // ── Welcome email ─────────────────────────────────────────────────
+    const loginUrl = `${appConfig().app.client_app_url}/signin`;
+    const platformName = appConfig().app.name ?? 'Platform';
+
+    if (isAdmin) {
+      // Admin created → send credentials
+      await this.mailService.sendWelcomeAdminCreated({
+        email: newUser.email,
+        username: newUser.username,
+        role: newUser.role,
+        tempPassword: password, // plain password before hash — captured from payload
+        loginUrl,
+        platformName,
+      });
+    } else {
+      // Self-registered → no credentials, just welcome
+      await this.mailService.sendWelcomeUser({
+        email: newUser.email,
+        username: newUser.username,
+        role: newUser.role,
+        loginUrl,
+        requiresApproval,
+        platformName,
       });
     }
 

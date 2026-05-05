@@ -7,6 +7,7 @@ import {
   PREFERENCE_KEY_MAP,
   WS_EVENTS,
 } from './notification.const';
+import { inspect } from 'util';
 
 @Injectable()
 export class NotificationService {
@@ -102,7 +103,7 @@ export class NotificationService {
         },
       },
     });
-    
+
     this.gateway.sendToUser(params.receiverId, WS_EVENTS[params.type], {
       notificationId: notification.id,
       type: params.type,
@@ -203,6 +204,7 @@ export class NotificationService {
     propertyId: string;
     propertyName: string;
     dashboardId: string;
+    inspectionId?: string;
   }) {
     return this.send({
       type: NotificationType.DASHBOARD_ASSIGNED,
@@ -214,10 +216,7 @@ export class NotificationService {
         propertyId: params.propertyId,
         propertyName: params.propertyName,
         dashboardId: params.dashboardId,
-        link: {
-          label: 'View Dashboard',
-          href: `/dashboard/${params.dashboardId}`,
-        },
+        inspectionId: params.inspectionId,
       },
     });
   }
@@ -229,6 +228,7 @@ export class NotificationService {
     propertyId: string;
     propertyName: string;
     dashboardId: string;
+    inspectionId?: string;
   }) {
     return this.send({
       type: NotificationType.DASHBOARD_SHARED,
@@ -240,10 +240,7 @@ export class NotificationService {
         propertyId: params.propertyId,
         propertyName: params.propertyName,
         dashboardId: params.dashboardId,
-        link: {
-          label: 'View Dashboard',
-          href: `/dashboard/${params.dashboardId}`,
-        },
+        inspectionId: params.inspectionId,
       },
     });
   }
@@ -255,6 +252,7 @@ export class NotificationService {
     propertyName: string;
     dashboardId: string;
     changeNote?: string;
+    inspectionId?: string;
   }) {
     for (const userId of params.userIds) {
       await this.send({
@@ -267,10 +265,7 @@ export class NotificationService {
           propertyId: params.propertyId,
           propertyName: params.propertyName,
           dashboardId: params.dashboardId,
-          link: {
-            label: 'View Dashboard',
-            href: `/dashboard/${params.dashboardId}`,
-          },
+          inspectionId: params.inspectionId ?? null,
         },
       });
     }
@@ -286,6 +281,7 @@ export class NotificationService {
     propertyName: string;
     dashboardId: string;
     dueDate?: string;
+    inspectionId?: string;
   }) {
     return this.send({
       type: NotificationType.DUE_INSPECTION,
@@ -297,10 +293,7 @@ export class NotificationService {
         propertyName: params.propertyName,
         dashboardId: params.dashboardId,
         dueDate: params.dueDate,
-        link: {
-          label: 'Start Inspection',
-          href: `/inspections/property/${params.dashboardId}/form`,
-        },
+        inspectionId: params.inspectionId ?? null,
       },
     });
   }
@@ -311,8 +304,9 @@ export class NotificationService {
     propertyId: string;
     propertyName: string;
     dashboardId: string;
+    inspectionId?: string;
   }) {
-    console.log("sending asinging.... property")
+    console.log('sending asinging.... property');
     return this.send({
       type: NotificationType.NEW_INSPECTION_ASSIGNED,
       receiverId: params.operationalUserId,
@@ -323,10 +317,7 @@ export class NotificationService {
         propertyId: params.propertyId,
         propertyName: params.propertyName,
         dashboardId: params.dashboardId,
-        link: {
-          label: 'Start Inspection',
-          href: `/inspections/property/${params.dashboardId}/form`,
-        },
+        inspectionId: params.inspectionId ?? null,
       },
     });
   }
@@ -378,17 +369,6 @@ export class NotificationService {
           userId: params.newUserId,
           userName: params.userName,
           userRole: params.userRole,
-          hasActions: true,
-          actions: {
-            accept: {
-              label: 'Accept',
-              endpoint: `PATCH /users/${params.newUserId}/approve`,
-            },
-            decline: {
-              label: 'Decline',
-              endpoint: `PATCH /users/${params.newUserId}/decline`,
-            },
-          },
         },
       });
     }

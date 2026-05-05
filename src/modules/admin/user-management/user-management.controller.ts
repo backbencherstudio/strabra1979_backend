@@ -24,6 +24,7 @@ import { Roles } from 'src/common/guard/role/roles.decorator';
 import { Role } from 'src/common/guard/role/role.enum';
 import { SWAGGER_AUTH } from 'src/common/swagger/swagger-auth';
 import { UserStatus } from 'prisma/generated/enums';
+import { UpdateUserRoleDto } from './dto/change-role.dto';
 
 @ApiTags('User Management')
 @ApiBearerAuth(SWAGGER_AUTH.admin)
@@ -83,6 +84,32 @@ export class UserManagementController {
     return this.userManagementService.findOne(id);
   }
 
+  @Get(':id/assigned-properties')
+  @ApiOperation({
+    summary: 'Get properties assigned to a user (paginated + search)',
+  })
+  @ApiParam({ name: 'id', description: 'User ID' })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, example: 10 })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    description: 'Search by property name, address, or type',
+  })
+  getUserAssignedProperties(
+    @Param('id') userId: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 10,
+    @Query('search') search?: string,
+  ) {
+    return this.userManagementService.getUserAssignedProperties(
+      userId,
+      Number(page),
+      Number(limit),
+      search,
+    );
+  }
+
   @ApiOperation({
     summary: 'Change user status',
     description:
@@ -101,5 +128,25 @@ export class UserManagementController {
     @Req() req: Request,
   ) {
     return this.userManagementService.changeStatus(id, dto, req.user);
+  }
+
+  @ApiOperation({
+    summary: 'Update user role',
+    description:
+      'Admin only. Change a user role to ADMIN, PROPERTY_MANAGER, AUTHORIZED_VIEWER, or OPERATIONAL.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'User ID (cuid)',
+    example: 'cmm02r3ri0000uku8do7v286a',
+  })
+  @Roles(Role.ADMIN)
+  @Patch(':id/role')
+  async updateRole(
+    @Param('id') id: string,
+    @Body() dto: UpdateUserRoleDto,
+    @Req() req: Request,
+  ) {
+    return this.userManagementService.updateRole(id, dto, req.user);
   }
 }

@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dashboard Invitation</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #f0f2f5;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    .wrap {
+      max-width: 520px;
+      margin: 48px auto;
+      padding: 0 16px;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid #e5e7eb;
+    }
+
+    .top {
+      background: #111827;
+      padding: 32px;
+      text-align: center;
+    }
+
+    .top .brand {
+      font-size: 14px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.5);
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      margin-bottom: 20px;
+    }
+
+    .top h1 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #fff;
+      line-height: 1.5;
+      margin: 0;
+    }
+
+    .top .from {
+      font-size: 13px;
+      color: rgba(255,255,255,0.45);
+      margin-top: 8px;
+    }
+
+    .content {
+      padding: 32px;
+    }
+
+    .content p {
+      font-size: 14px;
+      color: #6b7280;
+      line-height: 1.7;
+      margin: 0 0 24px;
+    }
+
+    .property {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin-bottom: 28px;
+    }
+
+    .property .tag {
+      font-size: 11px;
+      font-weight: 600;
+      color: #6366f1;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 4px;
+    }
+
+    .property .name {
+      font-size: 16px;
+      font-weight: 700;
+      color: #111827;
+    }
+
+    .property .address {
+      font-size: 13px;
+      color: #9ca3af;
+      margin-top: 3px;
+    }
+
+    .btn-wrap {
+      text-align: center;
+      margin: 4px 0 20px;
+    }
+
+    .btn {
+      display: inline-block;
+      background: #111827;
+      color: #fff !important;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 13px 32px;
+      border-radius: 8px;
+    }
+
+    .expiry {
+      text-align: center;
+      font-size: 12px;
+      color: #d1d5db;
+      margin-bottom: 24px;
+    }
+
+    .link-box {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      padding: 12px 14px;
+    }
+
+    .link-box p {
+      font-size: 12px;
+      color: #9ca3af;
+      margin: 0 0 4px;
+    }
+
+    .link-box span {
+      font-size: 11px;
+      color: #6366f1;
+      word-break: break-all;
+    }
+
+    .footer {
+      border-top: 1px solid #f3f4f6;
+      padding: 20px 32px;
+      text-align: center;
+    }
+
+    .footer p {
+      font-size: 12px;
+      color: #d1d5db;
+      line-height: 1.6;
+      margin: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+
+      <div class="top">
+        <div class="brand"><%= platformName %></div>
+        <h1>You've been invited to a property dashboard</h1>
+        <div class="from">from <%= inviterName %></div>
+      </div>
+
+      <div class="content">
+        <p>
+          <strong style="color:#111827"><%= inviterName %></strong> has given you access to the following property dashboard. Sign up to view it.
+        </p>
+
+        <div class="property">
+          <div class="tag">Property</div>
+          <div class="name"><%= propertyName %></div>
+          <% if (propertyAddress) { %>
+            <div class="address"><%= propertyAddress %></div>
+          <% } %>
+        </div>
+
+        <div class="btn-wrap">
+          <a href="<%= signupLink %>" class="btn">Accept & Create Account</a>
+        </div>
+
+        <p class="expiry">Invitation expires in 7 days</p>
+
+        <div class="link-box">
+          <p>Button not working? Paste this into your browser:</p>
+          <span><%= signupLink %></span>
+        </div>
+      </div>
+
+      <div class="footer">
+        <p>
+          You received this because <%= inviterName %> invited you.<br/>
+          If this wasn't expected, you can ignore this email.<br/>
+          &copy; <%= new Date().getFullYear() %> <%= platformName %>
+        </p>
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>

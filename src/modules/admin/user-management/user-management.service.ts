@@ -6,10 +6,17 @@ import {
 import { ChangeUserStatusDto } from './dto/change-user-status.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { UserStatus } from 'prisma/generated/enums';
+import { UpdateUserRoleDto } from './dto/change-role.dto';
+import { Prisma } from 'prisma/generated/client';
+import appConfig from 'src/config/app.config';
+import { MailService } from 'src/mail/mail.service';
 
 @Injectable()
 export class UserManagementService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly mailService: MailService,
+  ) {}
 
   async findAll(filters: {
     page: number;
@@ -109,6 +116,83 @@ export class UserManagementService {
     };
   }
 
+  async getUserAssignedProperties(
+    userId: string,
+    page = 1,
+    limit = 10,
+    search?: string,
+  ) {
+    const skip = (page - 1) * limit;
+
+    const whereClause: Prisma.PropertyAccessWhereInput = {
+      userId,
+      revokedAt: null,
+      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      property: search
+        ? {
+            OR: [
+              { name: { contains: search, mode: 'insensitive' } },
+              { address: { contains: search, mode: 'insensitive' } },
+              { propertyType: { contains: search, mode: 'insensitive' } },
+            ],
+          }
+        : undefined,
+    };
+
+    const [total, accesses] = await Promise.all([
+      this.prisma.propertyAccess.count({ where: whereClause }),
+
+      this.prisma.propertyAccess.findMany({
+        where: whereClause,
+        skip,
+        take: limit,
+        orderBy: { grantedAt: 'desc' },
+        include: {
+          user: {
+            select: { role: true },
+          },
+          property: {
+            select: {
+              id: true,
+              name: true,
+              address: true,
+              propertyType: true,
+              dashboard: { select: { id: true } },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      success: true,
+      message: 'Assigned properties fetched successfully',
+      data: accesses.map((a) => ({
+        accessId: a.id,
+        grantedAt: a.grantedAt,
+        expiresAt: a.expiresAt,
+        role: a.user.role,
+        property: {
+          propertyId: a.property.id,
+          name: a.property.name,
+          address: a.property.address,
+          propertyType: a.property.propertyType,
+          dashboardId: a.property.dashboard?.id ?? null,
+        },
+      })),
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
+      },
+    };
+  }
+
   async changeStatus(id: string, dto: ChangeUserStatusDto, currentUser: any) {
     const user = await this.prisma.user.findFirst({
       where: { id },
@@ -133,11 +217,13 @@ export class UserManagementService {
       updateData.access_revoked_by = null;
       updateData.isDeleted = false;
       updateData.deleted_at = null;
+      updateData.deletedReason = null;
     }
 
     if (dto.status === UserStatus.DEACTIVATED) {
       updateData.access_revoked_at = new Date();
       updateData.access_revoked_by = currentUser.userId;
+      updateData.deletedReason = null;
     }
 
     if (dto.status === UserStatus.DELETED) {
@@ -145,6 +231,7 @@ export class UserManagementService {
       updateData.deleted_at = new Date();
       updateData.access_revoked_at = new Date();
       updateData.access_revoked_by = currentUser.userId;
+      updateData.deletedReason = 'CONTACT_ADMIN';
     }
 
     const updated = await this.prisma.user.update({
@@ -162,10 +249,70 @@ export class UserManagementService {
       },
     });
 
+    const platformName = appConfig().app.name ?? 'Platform';
+
+    if (
+      dto.status === UserStatus.DEACTIVATED ||
+      dto.status === UserStatus.DELETED
+    ) {
+      await this.mailService.sendAccountDeactivated({
+        email: user.email,
+        username: user.username ?? user.email,
+        platformName,
+      });
+    }
+
     return {
       success: true,
       message: `User status changed to ${dto.status} successfully`,
       data: updated,
+    };
+  }
+
+  async updateRole(id: string, dto: UpdateUserRoleDto, currentUser: any) {
+    // Check if user exists
+    const user = await this.prisma.user.findFirst({
+      where: { id },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Prevent admin from changing their own role (optional - security measure)
+    if (id === currentUser.userId) {
+      throw new BadRequestException('You cannot change your own role');
+    }
+
+    // Store old role for response
+    const oldRole = user.role;
+
+    // Update user role
+    const updated = await this.prisma.user.update({
+      where: { id },
+      data: {
+        role: dto.role,
+      },
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        first_name: true,
+        last_name: true,
+        role: true,
+        status: true,
+        updated_at: true,
+      },
+    });
+
+    return {
+      success: true,
+      message: `User role changed from ${oldRole} to ${dto.role} successfully. User needs to log out and log back in for changes to take effect.`,
+      data: {
+        ...updated,
+        requires_logout: true,
+        message: 'User must logout and login again for role changes to apply',
+      },
     };
   }
 }
