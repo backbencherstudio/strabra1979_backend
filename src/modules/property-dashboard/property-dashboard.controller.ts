@@ -47,7 +47,8 @@ export class PropertyDashboardController {
     summary: 'List all properties (Property List page)',
     description:
       'Returns properties visible to the requesting user. ' +
-      'Admins see all; Property Managers see only their own.',
+      'Admins see all; Property Managers see only their own; ' +
+      'Authorized Viewers can switch between assigned and all.',
   })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 10 })
@@ -71,6 +72,13 @@ export class PropertyDashboardController {
   })
   @ApiQuery({ name: 'dateFrom', required: false, example: '2024-01-01' })
   @ApiQuery({ name: 'dateTo', required: false, example: '2024-12-31' })
+  @ApiQuery({
+    name: 'view',
+    required: false,
+    enum: ['all', 'assigned'],
+    description:
+      'AUTHORIZED_VIEWER only — "assigned": my properties, "all": all properties with access status',
+  })
   findAll(
     @Req() req: Request,
     @Query('page') page = '1',
@@ -81,6 +89,7 @@ export class PropertyDashboardController {
     @Query('sortOrder') sortOrder = 'desc',
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
+    @Query('view') view = 'all',
   ) {
     return this.service.findAll(req.user?.userId, req.user?.role, {
       page: +page,
@@ -91,6 +100,7 @@ export class PropertyDashboardController {
       sortOrder: sortOrder as 'asc' | 'desc',
       dateFrom,
       dateTo,
+      view,
     });
   }
 
@@ -225,12 +235,45 @@ export class PropertyDashboardController {
   @ApiParam({
     name: 'dashboardId',
     description: 'CUID of the PropertyDashboard',
+    example: 'cmm02r3ri0000uku8do7v286a',
   })
-  getAccess(@Param('dashboardId') dashboardId: string, @Req() req: Request) {
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    description: 'Page number (starts from 1)',
+    example: 1,
+    schema: { default: 1, minimum: 1 },
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Number of items per page',
+    example: 10,
+    schema: { default: 10, minimum: 1, maximum: 100 },
+  })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    description: 'Search by username or email',
+    example: 'john',
+  })
+  getAccess(
+    @Req() req: Request,
+    @Param('dashboardId') dashboardId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+  ) {
+    const pageNumber = page ? parseInt(page, 10) : 1;
+    const limitNumber = limit ? parseInt(limit, 10) : 10;
+
     return this.service.getPropertyAccess(
       dashboardId,
       req.user?.userId,
       req.user?.role,
+      pageNumber,
+      limitNumber,
+      search,
     );
   }
 

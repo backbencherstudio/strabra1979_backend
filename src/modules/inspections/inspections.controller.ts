@@ -237,7 +237,7 @@ export class InspectionController {
   // ═════════════════════════════════════════════════════════════════════════
 
   @Get('property/:dashboardId')
-  @Roles(Role.ADMIN, Role.OPERATIONAL, Role.PROPERTY_MANAGER)
+  @Roles(Role.ADMIN, Role.OPERATIONAL, Role.PROPERTY_MANAGER, Role.AUTHORIZED_VIEWER)
   @ApiOperation({ summary: 'List all inspections for a property dashboard' })
   @ApiParam({
     name: 'dashboardId',
@@ -302,19 +302,26 @@ export class InspectionController {
     required: false,
     enum: ScheduledInspectionStatus,
   })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    description: 'Search by property name or address',
+  })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 10 })
   getAssignedInspections(
     @Req() req: Request,
     @Query('status') status?: string,
+    @Query('search') search?: string,
     @Query('page') page = '1',
     @Query('limit') limit = '10',
   ) {
-    return this.service.getAssignedInspections(
-      req.user.userId,
-      req.user.role, // ← add this
-      { status, page: +page, limit: +limit },
-    );
+    return this.service.getAssignedInspections(req.user.userId, req.user.role, {
+      status,
+      search,
+      page: +page,
+      limit: +limit,
+    });
   }
 
   // ═════════════════════════════════════════════════════════════════════════

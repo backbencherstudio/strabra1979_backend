@@ -34,11 +34,11 @@ export const SUSPICIOUS_PATHS = [
   /graphql/i,
 
   // System files
-  /version/i,
-  /info/i,
-  /status/i,
-  /healthz/i,
-  /_health/i,
+  /^\/status$/i, // only exactly /status
+  /^\/version$/i, // only exactly /version
+  /^\/info$/i, // only exactly /info
+  /^\/healthz$/i,
+  /^\/_health$/i,
 
   // Backup files
   /\.bak$/i,

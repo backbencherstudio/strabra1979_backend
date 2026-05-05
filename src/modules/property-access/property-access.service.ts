@@ -15,12 +15,16 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { AccessRequestStatus, ActivityCategory } from 'prisma/generated/enums';
 import { NotificationService } from '../notification/notification.service';
 import { Role } from 'src/common/guard/role/role.enum';
+import appConfig from 'src/config/app.config';
+import { MailService } from 'src/mail/mail.service';
+import { randomBytes } from 'crypto';
 
 @Injectable()
 export class PropertyAccessService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationService,
+    private readonly mailService: MailService,
   ) {}
 
   // ─── PRIVATE HELPERS ──────────────────────────────────────────────────────
@@ -332,65 +336,135 @@ export class PropertyAccessService {
     const { propertyId, property } =
       await this._assertDashboardExists(dashboardId);
 
-    const targetUser = await this.prisma.user.findFirst({
+    const granter = await this.prisma.user.findUnique({
+      where: { id: granterId },
+      select: { username: true, first_name: true, last_name: true },
+    });
+
+    const granterName =
+      `${granter?.first_name ?? ''} ${granter?.last_name ?? ''}`.trim() ||
+      granter?.username ||
+      'A team member';
+
+    const platformName = appConfig().app.name ?? 'RoofWellness';
+
+    // ── Check if target is an existing user ──────────────────────────
+    const existingUser = await this.prisma.user.findFirst({
       where: {
         OR: [{ id: dto.emailOrUserId }, { email: dto.emailOrUserId }],
         isDeleted: false,
       },
     });
-    if (!targetUser)
-      throw new NotFoundException(
-        `No user found with email or ID "${dto.emailOrUserId}".`,
-      );
 
-    const granter = await this.prisma.user.findUnique({
-      where: { id: granterId },
-      select: { username: true },
-    });
+    // ── PATH A: User exists → grant access immediately ────────────────
+    if (existingUser) {
+      const access = await this.prisma.propertyAccess.upsert({
+        where: { propertyId_userId: { propertyId, userId: existingUser.id } },
+        create: {
+          propertyId,
+          userId: existingUser.id,
+          grantedBy: granterId,
+          expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+        },
+        update: {
+          grantedBy: granterId,
+          grantedAt: new Date(),
+          expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+          revokedAt: null,
+          revokedBy: null,
+        },
+      });
 
-    const access = await this.prisma.propertyAccess.upsert({
-      where: { propertyId_userId: { propertyId, userId: targetUser.id } },
-      create: {
+      await this.prisma.activityLog.create({
+        data: {
+          category: ActivityCategory.USER_ACCESS,
+          actor_role: existingUser.role,
+          message: `${existingUser.username} was given view access to ${property.name} dashboard`,
+        },
+      });
+
+      await this.notifications.dashboardShared({
+        userId: existingUser.id,
+        sharedById: granterId,
+        sharerName: granterName,
         propertyId,
-        userId: targetUser.id,
-        grantedBy: granterId,
-        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+        propertyName: property.name,
+        dashboardId,
+      });
+
+      return {
+        success: true,
+        type: 'existing_user',
+        message: `Access granted to ${existingUser.email}.`,
+        user: {
+          id: existingUser.id,
+          name: existingUser.username,
+          email: existingUser.email,
+          avatar: existingUser.avatar,
+          expiresAt: access.expiresAt,
+        },
+      };
+    }
+
+    // ── PATH B: No user found → send invite email ─────────────────────
+    // Validate it looks like an email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(dto.emailOrUserId)) {
+      throw new NotFoundException(
+        `No user found with ID "${dto.emailOrUserId}". To invite by email, provide a valid email address.`,
+      );
+    }
+
+    const inviteEmail = dto.emailOrUserId.toLowerCase().trim();
+
+    // Upsert pending invitation (reset token if already invited)
+    const token = randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    await this.prisma.pendingInvitation.upsert({
+      where: {
+        email_propertyId: { email: inviteEmail, propertyId },
+      },
+      create: {
+        email: inviteEmail,
+        propertyId,
+        invitedBy: granterId,
+        token,
+        expiresAt,
       },
       update: {
-        grantedBy: granterId,
-        grantedAt: new Date(),
-        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
-        revokedAt: null,
-        revokedBy: null,
+        invitedBy: granterId,
+        token,
+        expiresAt,
+        acceptedAt: null,
+        acceptedBy: null,
       },
+    });
+
+    const signupLink = `${appConfig().app.client_app_url}/signup?invite=${token}&email=${encodeURIComponent(inviteEmail)}`;
+
+    await this.mailService.sendDashboardInvitation({
+      email: inviteEmail,
+      inviterName: granterName,
+      propertyName: property.name,
+      propertyAddress: property.address,
+      signupLink,
+      platformName,
     });
 
     await this.prisma.activityLog.create({
       data: {
         category: ActivityCategory.USER_ACCESS,
-        actor_role: targetUser.role,
-        message: `${targetUser.username} was given view access to ${property.name} dashboard`,
+        actor_role: Role.AUTHORIZED_VIEWER,
+        message: `${inviteEmail} was invited to ${property.name} dashboard (pending signup)`,
       },
-    });
-
-    await this.notifications.dashboardShared({
-      userId: targetUser.id,
-      sharedById: granterId,
-      sharerName: granter?.username ?? 'Admin',
-      propertyId,
-      propertyName: property.name,
-      dashboardId,
     });
 
     return {
-      message: `Access granted to ${targetUser.email}.`,
-      user: {
-        id: targetUser.id,
-        name: targetUser.username,
-        email: targetUser.email,
-        avatar: targetUser.avatar,
-        expiresAt: access.expiresAt,
-      },
+      success: true,
+      type: 'pending_invitation',
+      message: `Invitation sent to ${inviteEmail}. They will get access once they sign up.`,
+      email: inviteEmail,
     };
   }
 

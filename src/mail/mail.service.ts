@@ -78,4 +78,129 @@ export class MailService {
       console.log(error);
     }
   }
+
+  async sendDashboardInvitation(params: {
+    email: string;
+    inviterName: string;
+    propertyName: string;
+    propertyAddress?: string;
+    signupLink: string;
+    platformName: string;
+  }) {
+    try {
+      await this.queue.add('sendDashboardInvitation', {
+        to: params.email,
+        subject: `${params.inviterName} invited you to a property dashboard`,
+        template: 'dashboard-invite',
+        context: {
+          inviterName: params.inviterName,
+          propertyName: params.propertyName,
+          propertyAddress: params.propertyAddress ?? null,
+          signupLink: params.signupLink,
+          platformName: params.platformName,
+        },
+      });
+    } catch (error) {
+      console.error('sendDashboardInvitation error:', error);
+    }
+  }
+
+  async sendWelcomeUser(params: {
+    email: string;
+    username: string;
+    role: string;
+    loginUrl: string;
+    requiresApproval: boolean;
+    platformName: string;
+  }) {
+    await this.queue.add('sendWelcomeUser', {
+      to: params.email,
+      subject: `Welcome to ${params.platformName}`,
+      template: 'welcome-user',
+      context: { ...params },
+    });
+  }
+
+  async sendWelcomeAdminCreated(params: {
+    email: string;
+    username: string;
+    role: string;
+    tempPassword: string;
+    loginUrl: string;
+    platformName: string;
+  }) {
+    await this.queue.add('sendWelcomeAdminCreated', {
+      to: params.email,
+      subject: `Your ${params.platformName} account is ready`,
+      template: 'welcome-admin-created',
+      context: { ...params },
+    });
+  }
+
+  async sendAccountDeactivated(params: {
+    email: string;
+    username: string;
+    platformName: string;
+  }) {
+    await this.queue.add('sendAccountDeactivated', {
+      to: params.email,
+      subject: `Your ${params.platformName} account has been deactivated`,
+      template: 'account-deactivated',
+      context: { ...params },
+    });
+  }
+
+  async sendDashboardAssigned(params: {
+    email: string;
+    username: string;
+    assignedBy: string;
+    propertyName: string;
+    propertyAddress?: string;
+    dashboardUrl: string;
+    platformName: string;
+  }) {
+    await this.queue.add('sendDashboardAssigned', {
+      to: params.email,
+      subject: `You've been assigned to ${params.propertyName}`,
+      template: 'dashboard-assigned',
+      context: { ...params },
+    });
+  }
+
+  async sendDashboardUnassigned(params: {
+    email: string;
+    username: string;
+    propertyName: string;
+    propertyAddress?: string;
+    platformName: string;
+  }) {
+    await this.queue.add('sendDashboardUnassigned', {
+      to: params.email,
+      subject: `Property assignment removed — ${params.propertyName}`,
+      template: 'dashboard-unassigned',
+      context: { ...params },
+    });
+  }
+
+  async sendInspectionAssigned(params: {
+    email: string;
+    username: string;
+    assignedBy: string;
+    propertyName: string;
+    propertyAddress?: string;
+    scheduledAt: string;
+    dashboardUrl: string;
+    platformName: string;
+  }) {
+    try {
+      await this.queue.add('sendInspectionAssigned', {
+        to: params.email,
+        subject: `New inspection assigned — ${params.propertyName}`,
+        template: 'inspection-assigned',
+        context: { ...params },
+      });
+    } catch (error) {
+      console.error('sendInspectionAssigned error:', error);
+    }
+  }
 }

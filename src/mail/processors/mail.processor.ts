@@ -55,6 +55,46 @@ export class MailProcessor extends WorkerHost {
             context: job.data.context,
           });
           break;
+
+        case 'sendDashboardInvitation':
+          this.logger.log('Sending dashboard invitation email');
+          await this.mailerService.sendMail({
+            to: job.data.to,
+            subject: job.data.subject,
+            template: job.data.template,
+            context: job.data.context,
+          });
+          break;
+
+        case 'sendWelcomeUser':
+        case 'sendWelcomeAdminCreated':
+        case 'sendAccountDeactivated':
+          this.logger.log('Sending user notification email');
+          await this.mailerService.sendMail({
+            to: job.data.to,
+            subject: job.data.subject,
+            template: job.data.template,
+            context: job.data.context,
+          });
+          break;
+        case 'sendDashboardAssigned':
+        case 'sendDashboardUnassigned':
+          await this.mailerService.sendMail({
+            to: job.data.to,
+            subject: job.data.subject,
+            template: job.data.template,
+            context: job.data.context,
+          });
+          break;
+
+        case 'sendInspectionAssigned':
+          await this.mailerService.sendMail({
+            to: job.data.to,
+            subject: job.data.subject,
+            template: job.data.template,
+            context: job.data.context,
+          });
+          break;
         default:
           this.logger.log('Unknown job name');
           return;
