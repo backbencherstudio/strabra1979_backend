@@ -8,7 +8,11 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { UploadStatus } from 'prisma/generated/enums';
 import { v4 as uuid } from 'uuid';
 import * as AWS from 'aws-sdk';
-import { MINIO_CLIENT } from './providers/minio-client.provider';
+import {
+  MINIO_CLIENT,
+  MINIO_PUBLIC_CLIENT,
+} from './providers/minio-client.provider';
+import appConfig from 'src/config/app.config';
 
 @Injectable()
 export class MinioMultipartService {
@@ -17,9 +21,10 @@ export class MinioMultipartService {
 
   constructor(
     @Inject(MINIO_CLIENT) private readonly s3Client: AWS.S3,
+    @Inject(MINIO_PUBLIC_CLIENT) private readonly s3Public: AWS.S3,
     private readonly prisma: PrismaService,
   ) {
-    this.bucketName = process.env.AWS_BUCKET || 'your-bucket';
+    this.bucketName = appConfig().fileSystems.s3.bucket || 'your-bucket';
     this.ensureBucket();
   }
 
@@ -106,17 +111,26 @@ export class MinioMultipartService {
       throw new BadRequestException('Upload already completed or aborted');
     }
 
-    const params: AWS.S3.UploadPartRequest = {
+    const params = {
       Bucket: this.bucketName,
       Key: session.key,
       UploadId: session.uploadId,
       PartNumber: partNumber,
     };
 
-    const url = await this.s3Client.getSignedUrlPromise('uploadPart', {
+    let url = await this.s3Public.getSignedUrlPromise('uploadPart', {
       ...params,
-      Expires: 3600, // 1 hour expiry
+      Expires: 3600,
     });
+
+    // Replace production URL with development URL
+    const isDevelopment = appConfig().app.node_env === 'development';
+    if (isDevelopment) {
+      url = url.replace(
+        'https://backend.roofwellnesshub.com',
+        appConfig().fileSystems.s3.endpoint || 'http://192.168.7.68:9005',
+      );
+    }
 
     return url;
   }
@@ -197,7 +211,21 @@ export class MinioMultipartService {
       data: { status: UploadStatus.COMPLETED },
     });
 
-    const url = `${process.env.AWS_ENDPOINT}/${this.bucketName}/${session.key}`;
+    // Determine the correct public endpoint based on environment
+    const isDevelopment = appConfig().app.node_env === 'development';
+    let publicEndpoint: string;
+
+    if (isDevelopment) {
+      publicEndpoint =
+        appConfig().fileSystems.s3.endpoint || 'http://192.168.7.68:9005';
+    } else {
+      publicEndpoint =
+        appConfig().fileSystems.s3.publicEndpoint ||
+        'https://backend.roofwellnesshub.com';
+    }
+
+    // Construct the final URL
+    const url = `${publicEndpoint}/${this.bucketName}/${session.key}`;
 
     return {
       location: url,

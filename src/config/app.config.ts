@@ -18,6 +18,9 @@ export default () => ({
       bucket: process.env.AWS_BUCKET,
       url: process.env.AWS_URL,
       endpoint: process.env.AWS_ENDPOINT,
+      // Add public endpoint for presigned URLs
+      publicEndpoint:
+        process.env.MINIO_PUBLIC_ENDPOINT,
     },
     gcs: {
       driver: 'gcs',

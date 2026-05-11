@@ -413,6 +413,8 @@ export class InspectionService {
           expiresAt: { gt: new Date() },
         },
       });
+
+      console.log(session)
       if (!session)
         throw new BadRequestException(
           `Invalid or expired upload session: ${sess.sessionId}`,
