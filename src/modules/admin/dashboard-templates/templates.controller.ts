@@ -197,7 +197,7 @@ export class DashboardTemplateController {
     description:
       'Corresponds to the **"Add More Supporting Media & Embedded Contents"** modal. ' +
       'Set `mediaType` to:\n' +
-      '- `media` → photos / videos uploaded directly (e.g. Aerial Map, Photos)\n' +
+      '- `media` → photos / videos uploaded directly (e.g. Drone Aerial Overview, Photos)\n' +
       '- `embedded` → 3D tours, interactive maps, or any external embed URL',
   })
   @ApiParam({ name: 'id', description: 'Template CUID', example: 'clx5678def' })
@@ -273,7 +273,7 @@ export class DashboardTemplateController {
             'header_info',
             'health_snapshot',
             'media_grid',
-            'aerial_map',
+            'drone_aerial',
             'tour_3d',
             'repair_planning',
             'roof_health_rating',
@@ -293,7 +293,7 @@ export class DashboardTemplateController {
                   'header_info',
                   'health_snapshot',
                   'media_grid',
-                  'aerial_map',
+                  'drone_aerial',
                   'tour_3d',
                   'repair_planning',
                   'roof_health_rating',

@@ -8,6 +8,7 @@ import {
   Query,
   UseGuards,
   Req,
+  Delete,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -33,7 +34,7 @@ import { Request } from 'express';
 import { SWAGGER_AUTH } from 'src/common/swagger/swagger-auth';
 
 @ApiTags('Property Dashboard')
-@ApiBearerAuth(SWAGGER_AUTH.property_manager)
+@ApiBearerAuth(SWAGGER_AUTH.admin)
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('properties')
 export class PropertyDashboardController {
@@ -299,5 +300,46 @@ export class PropertyDashboardController {
     @Req() req: Request,
   ) {
     return this.service.setAccessExpiration(dashboardId, dto, req.user?.userId);
+  }
+
+  @Delete('dashboard/:dashboardId')
+  @Roles(Role.ADMIN)
+  @ApiOperation({
+    summary: 'Delete property dashboard and all related data',
+    description:
+      'Permanently deletes a property, its dashboard, all inspections, media, folders, scheduled inspections, ' +
+      'access grants, access requests, and pending invitations. This action is irreversible.',
+  })
+  @ApiParam({
+    name: 'dashboardId',
+    description: 'CUID of the PropertyDashboard to delete',
+    example: 'cmm02r3ri0000uku8do7v286a',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Property dashboard deleted successfully',
+    schema: {
+      example: {
+        success: true,
+        message:
+          'Property dashboard and all related data deleted successfully.',
+        data: {
+          propertyId: 'cmm02r3ri0000uku8do7v286b',
+          propertyName: 'Sunset Office Tower',
+          dashboardId: 'cmm02r3ri0000uku8do7v286a',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 404, description: 'Dashboard not found.' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden – only ADMIN can delete.',
+  })
+  async deleteDashboard(
+    @Param('dashboardId') dashboardId: string,
+    @Req() req: Request,
+  ) {
+    return this.service.deletePropertyDashboard(dashboardId, req.user?.userId);
   }
 }

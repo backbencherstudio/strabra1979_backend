@@ -24,6 +24,7 @@ import { NotificationModule } from './modules/notification/notification.module';
 import { InspectionFolderModule } from './modules/inspection-folder/inspection-folder.module';
 import { ActivityLogModule } from './modules/admin/activity/activity.module';
 import { OverviewModule } from './modules/overview/overview.module';
+import { UploadModule } from './modules/upload/upload.module';
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { OverviewModule } from './modules/overview/overview.module';
     PropertyAccessModule,
     DashboardTemplateModule,
     InspectionCriteriaModule,
+    UploadModule,
     InspectionModule,
     InspectionFolderModule,
     NotificationModule,

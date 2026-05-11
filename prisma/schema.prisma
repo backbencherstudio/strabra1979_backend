@@ -126,7 +126,7 @@ model InspectionCriteria {
   mediaFields Json
   // [
   //   { "key": "mediaFiles", "label": "Media Files", "placeholder": "Upload Media file",             "type": "file",     "isSystem": true, "order": 1, "accept": ["image/*","video/*"] },
-  //   { "key": "aerialMap",  "label": "Aerial Map",  "placeholder": "Upload your file.",             "type": "file",     "isSystem": true, "order": 2, "accept": ["image/*"] },
+  //   { "key": "droneAerial",  "label": "Drone Aerial Overview",  "placeholder": "Upload your file.",             "type": "file",     "isSystem": true, "order": 2, "accept": ["image/*"] },
   //   { "key": "tour3d",     "label": "3D Tours",    "placeholder": "Paste Source URL / iframe Code","type": "embed",    "isSystem": true, "order": 3, "accept": null },
   //   { "key": "documents",  "label": "Documents",   "placeholder": "Add Documents",                 "type": "document", "isSystem": true, "order": 4, "accept": null }
   // ]
@@ -175,7 +175,7 @@ model DashboardTemplate {
   //   { "order": 1, "type": "header_info",      "label": "Property Info",         "config": {} },
   //   { "order": 2, "type": "health_snapshot",  "label": "Roof Health Snapshot",  "config": {} },
   //   { "order": 3, "type": "media_grid",       "label": "Media Files",           "config": {} },
-  //   { "order": 4, "type": "aerial_map",       "label": "Aerial Map",            "config": {} },
+  //   { "order": 4, "type": "drone_aerial",       "label": "Drone Aerial Overview",            "config": {} },
   //   { "order": 5, "type": "tour_3d",          "label": "3D Roof Tour",          "config": {} },
   //   { "order": 6, "type": "repair_planning",  "label": "Priority Repair Planning", "config": {} },
   //   { "order": 7, "type": "documents",        "label": "Documents",             "config": {} },
@@ -253,73 +253,78 @@ model Inspection {
   dashboardId String
   inspectorId String
 
-  // ── Inspector fills these at inspection time ──────────────────────────────
-
-  // Values keyed by criteria.headerFields[].key — inspector fills each field
-  // { "inspectionTitle": "2024 Annual Roof", "propertyType": "Commercial", "roofSystemType": "TPO", "drainageType": "Internal" }
-  // Any custom header fields added by admin also appear here by their key
-  headerData Json @default("{}")
-
-  // Scores keyed by criteria.scoringCategories[].key
-  // { "surfaceCondition": { "score": 22, "notes": "Minor cracks observed" },
-  //   "seamsFlashings":   { "score": 18, "notes": "Good overall" },
-  //   "drainagePonding":  { "score": 14, "notes": "" }, ... }
-  // Any custom scoring categories added by admin also appear here
-  scores Json @default("{}")
-
-  // Computed from scores against criteria.healthThresholdConfig
-  overallScore  Float?
-  healthLabel   String? // "Good" | "Fair" | "Poor"  — derived from healthThresholdConfig
-  remainingLife String? // "5-7 Years"               — derived from healthThresholdConfig tiers
-
-  // Repair items — status must match one of criteria.repairPlanningConfig.statuses
-  // [
-  //   { "id": "repair_1748291001", "title": "Emergency Leak Repair",        "status": "Urgent",               "description": "Moisture stains noted..." },
-  //   { "id": "repair_1748291002", "title": "Metal Panel Corrosion",         "status": "Maintenance",          "description": "Corrosion on north face..." },
-  //   { "id": "repair_1748291003", "title": "Full Membrane Replacement",     "status": "Replacement Planning", "description": "End of service life..." }
-  // ]
+  headerData  Json @default("{}")
+  scores      Json @default("{}")
   repairItems Json @default("[]")
 
-  // NTE and additional notes — labels/placeholders come from criteria.nteConfig
-  // and criteria.additionalNotesConfig; only the values are stored here
+  overallScore  Float?
+  healthLabel   String?
+  remainingLife String?
+
   nteValue           Float?
   additionalComments String?
-
-  // Media uploaded for this inspection — stored as MediaFile rows, not inline JSON
-  // Keyed by criteria.mediaFields[].key so the UI knows which slot each file belongs to
-  // Access via: mediaFiles relation, filtered by mediaFieldKey
 
   inspectedAt DateTime @default(now())
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  dashboard           PropertyDashboard      @relation(fields: [dashboardId], references: [id])
-  inspector           User                   @relation(fields: [inspectorId], references: [id])
+  dashboard PropertyDashboard @relation(fields: [dashboardId], references: [id])
+  inspector User              @relation(fields: [inspectorId], references: [id])
+
   mediaFiles          MediaFile[]
   folderItems         InspectionFolderItem[]
   scheduledInspection ScheduledInspection?
 
+  @@index([dashboardId])
+  @@index([inspectorId])
   @@map("inspections")
 }
 
 model MediaFile {
-  id           String    @id @default(cuid())
+  id           String @id @default(cuid())
   inspectionId String
-  fileName     String
-  fileType     MediaType
-  url          String
-  size         Int? // bytes
 
-  // Which media slot this file belongs to — matches criteria.mediaFields[].key
-  // e.g. "mediaFiles" | "aerialMap" | "documents" | "custom_media_1748291234"
+  fileName String
+  fileType MediaType
+  url      String
+  size     Int?
+
   mediaFieldKey String?
+  category      String?
 
-  category   String? // "photo" | "aerial" | "tour" | "video" | "document"
   uploadedAt DateTime @default(now())
 
-  inspection Inspection @relation(fields: [inspectionId], references: [id])
+  inspection Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
 
+  @@index([inspectionId])
+  @@index([mediaFieldKey])
   @@map("media_files")
+}
+
+model UploadSession {
+  id     String @id @default(cuid())
+  userId String
+
+  fileName String
+  fileSize Int
+  mimeType String
+
+  key       String
+  uploadId  String
+  partETags Json
+
+  status    UploadStatus @default(PENDING)
+  createdAt DateTime     @default(now())
+  expiresAt DateTime
+
+  // Only reference, NOT relation
+  inspectionId  String?
+  mediaFieldKey String?
+
+  @@index([userId])
+  @@index([inspectionId])
+  @@index([status])
+  @@map("upload_sessions")
 }
 
 model ScheduledInspection {
@@ -582,6 +587,13 @@ enum AccessRequestStatus {
   APPROVED
   DECLINED
   CANCELLED
+}
+
+enum UploadStatus {
+  PENDING
+  COMPLETED
+  ABORTED
+  ASSIGNED // linked to inspection
 }
 
 enum ActivityCategory {

@@ -106,8 +106,8 @@ export const INSPECTION_CRITERIA = {
       accept: ['image/*', 'video/*'],
     },
     {
-      key: 'aerialMap',
-      label: 'Aerial Map',
+      key: 'droneAerial',
+      label: 'Drone Aerial Overview',
       placeholder: 'Upload your file.',
       type: 'file',
       isSystem: true,

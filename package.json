@@ -23,6 +23,8 @@
     "seed": "prisma db seed"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1045.0",
+    "@aws-sdk/s3-request-presigner": "^3.1045.0",
     "@casl/prisma": "1.5.1",
     "@google-cloud/storage": "^7.16.0",
     "@nestjs-modules/ioredis": "^2.0.2",
