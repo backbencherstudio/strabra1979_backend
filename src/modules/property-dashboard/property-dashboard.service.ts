@@ -1033,6 +1033,98 @@ export class PropertyDashboardService {
     };
   }
 
+  // ═════════════════════════════════════════════════════════════════════════
+  // 9. DELETE PROPERTY DASHBOARD
+  // ═════════════════════════════════════════════════════════════════════════
+
+  async deletePropertyDashboard(dashboardId: string, adminId: string) {
+    // 1. Verify dashboard exists and fetch property details
+    const dashboard = await this.prisma.propertyDashboard.findUnique({
+      where: { id: dashboardId },
+      include: { property: true },
+    });
+
+    if (!dashboard) {
+      throw new NotFoundException(`Dashboard "${dashboardId}" not found.`);
+    }
+
+    const propertyId = dashboard.propertyId;
+    const propertyName = dashboard.property.name;
+
+    // 2. Execute deletion in a transaction
+    await this.prisma.$transaction(async (tx) => {
+      // 2.1 Delete ScheduledInspections linked to this dashboard
+      await tx.scheduledInspection.deleteMany({
+        where: { dashboardId },
+      });
+
+      // 2.2 Delete InspectionFolderItems and Folders
+      await tx.inspectionFolderItem.deleteMany({
+        where: { folder: { dashboardId } },
+      });
+      await tx.inspectionFolder.deleteMany({
+        where: { dashboardId },
+      });
+
+      // 2.3 Delete MediaFiles belonging to Inspections of this dashboard
+      const inspections = await tx.inspection.findMany({
+        where: { dashboardId },
+        select: { id: true },
+      });
+      const inspectionIds = inspections.map((i) => i.id);
+      if (inspectionIds.length) {
+        await tx.mediaFile.deleteMany({
+          where: { inspectionId: { in: inspectionIds } },
+        });
+      }
+
+      // 2.4 Delete Inspections
+      await tx.inspection.deleteMany({
+        where: { dashboardId },
+      });
+
+      // 2.5 Delete PropertyDashboard
+      await tx.propertyDashboard.delete({
+        where: { id: dashboardId },
+      });
+
+      // 2.6 Delete dependent records linked to Property (not cascaded automatically)
+      await tx.propertyAccess.deleteMany({
+        where: { propertyId },
+      });
+      await tx.propertyAccessRequest.deleteMany({
+        where: { propertyId },
+      });
+      await tx.pendingInvitation.deleteMany({
+        where: { propertyId },
+      });
+
+      // 2.7 Finally delete the Property itself
+      await tx.property.delete({
+        where: { id: propertyId },
+      });
+    });
+
+    // 3. Log activity
+    await this.prisma.activityLog.create({
+      data: {
+        category: ActivityCategory.PROPERTY_DASHBOARD_UPDATE,
+        actor_role: Role.ADMIN,
+        message: `Property "${propertyName}" and its dashboard were permanently deleted by ${adminId}`,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Property dashboard and all related data deleted successfully.',
+      data: {
+        propertyId,
+        propertyName,
+        dashboardId,
+      },
+    };
+  }
+
   private _resolveUrl(path: string): string {
     const appUrl = appConfig().app.url;
     return `${appUrl}/public/storage${path}`;

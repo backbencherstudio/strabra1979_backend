@@ -89,7 +89,7 @@ export class InitialScoringCategoryDto {
 
 export class InitialMediaFieldDto {
   @ApiProperty({
-    example: 'aerialMap',
+    example: 'droneAerial',
     description:
       'Unique camelCase key — used as MediaFile.mediaFieldKey to link uploaded files to this slot.',
   })
@@ -97,7 +97,7 @@ export class InitialMediaFieldDto {
   @IsNotEmpty()
   key: string;
 
-  @ApiProperty({ example: 'Aerial Map' })
+  @ApiProperty({ example: 'Drone Aerial Overview' })
   @IsString()
   @IsNotEmpty()
   label: string;
@@ -408,8 +408,8 @@ export class CreateInspectionCriteriaDto {
         accept: ['image/*', 'video/*'],
       },
       {
-        key: 'aerialMap',
-        label: 'Aerial Map',
+        key: 'droneAerial',
+        label: 'Drone Aerial Overview',
         placeholder: 'Upload your file.',
         isMediaFile: true,
         isEmbedded: false,

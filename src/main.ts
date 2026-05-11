@@ -42,16 +42,16 @@ async function bootstrap() {
   const securityMiddleware = new SecurityMiddleware();
   const suspiciousPathMiddleware = new SuspiciousPathMiddleware();
 
-  app.use((req: Request, res: Response, next: NextFunction) =>
-    securityMiddleware.use(req, res, next),
-  );
-  app.use((req: Request, res: Response, next: NextFunction) =>
-    suspiciousPathMiddleware.use(req, res, next),
-  );
+  // app.use((req: Request, res: Response, next: NextFunction) =>
+  //   securityMiddleware.use(req, res, next),
+  // );
+  // app.use((req: Request, res: Response, next: NextFunction) =>
+  //   suspiciousPathMiddleware.use(req, res, next),
+  // );
 
   // ─── Rate Limiters ────────────────────────────────────────────────
-  app.use('/api', createRateLimiter('GENERAL'));
-  app.use('/api/auth', createRateLimiter('AUTH'));
+  // app.use('/api', createRateLimiter('GENERAL'));
+  // app.use('/api/auth', createRateLimiter('AUTH'));
 
   // ─── Helmet ───────────────────────────────────────────────────────
   app.use(helmetConfig());
@@ -69,7 +69,7 @@ async function bootstrap() {
 
   // ─── Storage Setup ────────────────────────────────────────────────
   SojebStorage.config({
-    driver: 'local',
+    driver: 's3',
     connection: {
       rootUrl: appConfig().storageUrl.rootUrl,
       publicUrl: appConfig().storageUrl.rootUrlPublic,

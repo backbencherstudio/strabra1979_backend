@@ -1,25 +1,29 @@
 import helmet from 'helmet';
+import appConfig from 'src/config/app.config';
 
 export const helmetConfig = () => {
   return helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: [`'self'`],
-        connectSrc: [`'self'`, `https:`, `wss:`],
-        scriptSrc: [`'self'`, `'unsafe-inline'`, `'unsafe-eval'`],
-        styleSrc: [`'self'`, `'unsafe-inline'`],
-        imgSrc: [`'self'`, `data:`, `https:`, `http:`],
-        workerSrc: [`'self'`, `blob:`],
-        frameSrc: [`'self'`],
-        fontSrc: [`'self'`, `data:`],
-        objectSrc: [`'none'`],
-        mediaSrc: [`'self'`],
-        frameAncestors: [`'none'`],
-        baseUri: [`'self'`],
-        formAction: [`'self'`],
-      },
-    },
+    contentSecurityPolicy:
+      appConfig().app.node_env === 'development'
+        ? false
+        : {
+            directives: {
+              defaultSrc: [`'self'`],
+              connectSrc: [`'self'`, `https:`, `wss:`],
+              scriptSrc: [`'self'`, `'unsafe-inline'`, `'unsafe-eval'`],
+              styleSrc: [`'self'`, `'unsafe-inline'`],
+              imgSrc: [`'self'`, `data:`, `https:`, `http:`],
+              workerSrc: [`'self'`, `blob:`],
+              frameSrc: [`'self'`],
+              fontSrc: [`'self'`, `data:`],
+              objectSrc: [`'none'`],
+              mediaSrc: [`'self'`],
+              frameAncestors: [`'none'`],
+              baseUri: [`'self'`],
+              formAction: [`'self'`],
+            },
+          },
     crossOriginEmbedderPolicy: false,
     crossOriginOpenerPolicy: { policy: 'same-origin' },
     dnsPrefetchControl: { allow: false },

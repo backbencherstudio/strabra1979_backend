@@ -7,11 +7,13 @@ import {
   IsObject,
   IsPositive,
   ValidateNested,
-  Min,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
+// ─────────────────────────────────────────────────────────────
+// Repair Item DTO
+// ─────────────────────────────────────────────────────────────
 export class RepairItemDto {
   @ApiProperty({ example: 'Emergency Leak Repair' })
   @IsString()
@@ -32,6 +34,27 @@ export class RepairItemDto {
   description?: string;
 }
 
+// ─────────────────────────────────────────────────────────────
+// Media Session DTO (links an upload session to a media slot)
+// ─────────────────────────────────────────────────────────────
+export class MediaSessionDto {
+  @ApiProperty({ description: 'Upload session ID from /uploads/initiate' })
+  @IsString()
+  @IsNotEmpty()
+  sessionId: string;
+
+  @ApiProperty({
+    description: 'Media slot key (matches criteria.mediaFields[].key)',
+    example: 'mediaFiles',
+  })
+  @IsString()
+  @IsNotEmpty()
+  mediaFieldKey: string;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Submit Inspection DTO (operational team)
+// ─────────────────────────────────────────────────────────────
 export class SubmitInspectionDto {
   @ApiProperty({
     description:
@@ -77,17 +100,13 @@ export class SubmitInspectionDto {
 
   @ApiPropertyOptional({
     example: 8000,
-    description: 'Updated NTE value. Leave empty if not applicable.',
+    description: 'NTE value (Not‑To‑Exceed). Leave empty if not applicable.',
     type: Number,
     nullable: true,
   })
   @IsOptional()
   @Transform(({ value }) => {
-    // Convert empty values from Swagger/UI to null
-    if (value === '' || value === null || value === undefined) {
-      return null;
-    }
-
+    if (value === '' || value === null || value === undefined) return null;
     const num = Number(value);
     return isNaN(num) ? value : num;
   })
@@ -108,16 +127,21 @@ export class SubmitInspectionDto {
   @IsString()
   inspectedAt?: string;
 
+  // ─── Replaces old mediaFieldKeys ─────────────────────────────
   @ApiPropertyOptional({
     description:
-      'Maps each uploaded file to its criteria slot. Index matches files[] array. Keys must match criteria.mediaFields[].key.',
-    example: ['mediaFiles', 'mediaFiles', 'aerialMap', 'tour3d'],
-    type: [String],
+      'List of completed upload sessions and their assigned media slots.',
+    type: [MediaSessionDto],
+    example: [
+      { sessionId: 'cmm02r3ri0000uku8do7v286a', mediaFieldKey: 'mediaFiles' },
+      { sessionId: 'cmm02r3ri0000uku8do7v286b', mediaFieldKey: 'droneAerial' },
+    ],
   })
   @IsOptional()
   @IsArray()
-  @IsString({ each: true })
-  mediaFieldKeys?: string[];
+  @ValidateNested({ each: true })
+  @Type(() => MediaSessionDto)
+  mediaSessions?: MediaSessionDto[];
 
   @ApiPropertyOptional({
     description:
@@ -129,6 +153,9 @@ export class SubmitInspectionDto {
   embedFields?: Record<string, string>;
 }
 
+// ─────────────────────────────────────────────────────────────
+// Update Inspection DTO (admin / operational edit)
+// ─────────────────────────────────────────────────────────────
 export class UpdateInspectionDto {
   @ApiPropertyOptional({
     description:
@@ -180,11 +207,7 @@ export class UpdateInspectionDto {
   })
   @IsOptional()
   @Transform(({ value }) => {
-    // Convert empty values from Swagger/UI to null
-    if (value === '' || value === null || value === undefined) {
-      return null;
-    }
-
+    if (value === '' || value === null || value === undefined) return null;
     const num = Number(value);
     return isNaN(num) ? value : num;
   })
@@ -200,16 +223,20 @@ export class UpdateInspectionDto {
   @IsString()
   additionalComments?: string;
 
+  // ─── For adding new files during update ──────────────────────
   @ApiPropertyOptional({
     description:
-      'Maps each newly uploaded file to its criteria slot. Index must match files[] array. Keys must match criteria.mediaFields[].key.',
-    example: ['mediaFiles', 'aerialMap'],
-    type: [String],
+      'New upload sessions to attach to this inspection (for adding additional media).',
+    type: [MediaSessionDto],
+    example: [
+      { sessionId: 'cmm02r3ri0000uku8do7v286c', mediaFieldKey: 'documents' },
+    ],
   })
   @IsOptional()
   @IsArray()
-  @IsString({ each: true })
-  mediaFieldKeys?: string[];
+  @ValidateNested({ each: true })
+  @Type(() => MediaSessionDto)
+  mediaSessions?: MediaSessionDto[];
 
   @ApiPropertyOptional({
     description: 'Updated embed URL fields keyed by mediaFieldKey.',

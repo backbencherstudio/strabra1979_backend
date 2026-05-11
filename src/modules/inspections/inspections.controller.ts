@@ -7,11 +7,8 @@ import {
   Param,
   UseGuards,
   Req,
-  UseInterceptors,
-  UploadedFiles,
   Query,
   Delete,
-  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -74,13 +71,11 @@ export class InspectionController {
 
   @Post('property/:dashboardId/submit/:scheduledInspectionId')
   @Roles(Role.OPERATIONAL)
-  @UseInterceptors(FilesInterceptor('files', 50))
-  @ApiConsumes('multipart/form-data')
   @ApiOperation({
-    summary: 'Submit a completed inspection with all data and media files',
+    summary: 'Submit a completed inspection',
     description:
-      'Single API call — sends everything at once as multipart/form-data.\n\n' +
-      '**Requires** the scheduledInspectionId to be IN_PROGRESS status.',
+      '**Requires** the scheduledInspectionId to be IN_PROGRESS status.\n\n' +
+      'Files must be uploaded separately via the upload module. Pass their session IDs in `mediaSessions`.',
   })
   @ApiParam({
     name: 'dashboardId',
@@ -91,153 +86,52 @@ export class InspectionController {
     description: 'CUID of the ScheduledInspection (must be IN_PROGRESS)',
   })
   @ApiBody({
-    schema: {
-      type: 'object',
-      required: ['data'],
-      properties: {
-        data: {
-          type: 'string',
-          description: 'JSON string of the inspection payload',
-          example: JSON.stringify({
-            headerData: {
-              inspectionTitle: '2024 Annual Roof Inspection',
-              propertyType: 'Commercial',
-            },
-            scores: {
-              surfaceCondition: { score: 22, notes: 'Minor cracks observed' },
-            },
-            repairItems: [
-              {
-                title: 'Emergency Leak Repair',
-                status: 'Urgent',
-                description: 'Moisture stains...',
-              },
-            ],
-            nteValue: 7500,
-            additionalComments: 'No active leaks at time of inspection.',
-            inspectedAt: '2024-06-15T09:00:00.000Z',
-            mediaFieldKeys: [
-              'mediaFiles',
-              'mediaFiles',
-              'documents',
-              'documents',
-              'documents',
-            ],
-            embedFields: {
-              tour3d: 'https://threejs.org/examples/#webgl_animation_keyframes',
-            },
-          }),
-        },
-        files: {
-          type: 'array',
-          items: { type: 'string', format: 'binary' },
-        },
-      },
-    },
+    type: SubmitInspectionDto,
+    description:
+      'Inspection data including header, scores, repair items, and media session references.',
   })
   @ApiCreatedResponse({ description: 'Inspection submitted successfully.' })
   submitInspection(
     @Param('dashboardId') dashboardId: string,
     @Param('scheduledInspectionId') scheduledInspectionId: string,
-    @UploadedFiles() files: Express.Multer.File[],
-    @Body('data') rawData: string,
+    @Body() dto: SubmitInspectionDto,
     @Req() req: Request,
   ) {
-    let dto: SubmitInspectionDto;
-    try {
-      dto = JSON.parse(rawData);
-    } catch {
-      throw new Error('Invalid JSON in "data" field.');
-    }
     return this.service.submitInspection(
       dashboardId,
       scheduledInspectionId,
       req.user.userId,
       req.user.role,
       dto,
-      files ?? [],
     );
   }
 
   @Patch(':inspectionId')
   @Roles(Role.ADMIN, Role.OPERATIONAL)
-  @UseInterceptors(FilesInterceptor('files', 50))
-  @ApiConsumes('multipart/form-data')
   @ApiOperation({
-    summary:
-      'Update an inspection before publishing (Admin and operational only)',
-    description:
-      'Allows admin/operational to modify inspection data before publishing.\n\n' +
-      'Only works on inspections in `COMPLETE` status (not yet published).\n\n' +
-      '**Everything is optional:**\n' +
-      '- Omit `files` to keep existing media as-is\n' +
-      '- Omit `removeMediaFileIds` to keep all existing files\n' +
-      '- Omit `data` entirely to only upload/remove files\n' +
-      '- Send only the fields you want to change\n\n' +
-      '**File upload rule:** `mediaFieldKeys` only needs keys for NEW files being uploaded. ' +
-      'Already-uploaded file keys are automatically ignored.',
+    summary: 'Update an inspection before publishing (JSON only)',
   })
   @ApiParam({ name: 'inspectionId', description: 'CUID of the Inspection' })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        data: {
-          type: 'string',
-          description:
-            'Optional JSON string — include only fields you want to update',
-          example: JSON.stringify({
-            headerData: { inspectionTitle: 'Updated Title' },
-            scores: { surfaceCondition: { score: 24, notes: 'Updated notes' } },
-            repairItems: [
-              { title: 'Leak Repair', status: 'Urgent', description: 'Fixed' },
-            ],
-            nteValue: 8000,
-            additionalComments: 'Updated comments',
-            mediaFieldKeys: ['photo_slot_1'], // only keys for NEW files
-            removeMediaFileIds: ['cuid1', 'cuid2'], // only if removing files
-            embedFields: { video_slot: 'https://...' },
-          }),
-        },
-        files: {
-          type: 'array',
-          description:
-            'Optional — new files to append. Existing files are untouched.',
-          items: { type: 'string', format: 'binary' },
-        },
-      },
-    },
-  })
+  @ApiBody({ type: UpdateInspectionDto })
   @ApiOkResponse({ description: 'Inspection updated successfully.' })
   updateInspection(
     @Param('inspectionId') inspectionId: string,
-    @UploadedFiles() files: Express.Multer.File[],
-    @Body('data') rawData: string,
+    @Body() dto: UpdateInspectionDto,
     @Req() req: Request,
   ) {
-    let dto: UpdateInspectionDto = {};
-
-    if (rawData) {
-      try {
-        dto = JSON.parse(rawData);
-      } catch {
-        throw new BadRequestException('Invalid JSON in "data" field.');
-      }
-    }
-
-    return this.service.updateInspection(
-      inspectionId,
-      req.user.userId,
-      dto,
-      files ?? [],
-    );
+    return this.service.updateInspection(inspectionId, req.user.userId, dto);
   }
   // ═════════════════════════════════════════════════════════════════════════
   // INSPECTION QUERIES
   // ═════════════════════════════════════════════════════════════════════════
 
   @Get('property/:dashboardId')
-  @Roles(Role.ADMIN, Role.OPERATIONAL, Role.PROPERTY_MANAGER, Role.AUTHORIZED_VIEWER)
+  @Roles(
+    Role.ADMIN,
+    Role.OPERATIONAL,
+    Role.PROPERTY_MANAGER,
+    Role.AUTHORIZED_VIEWER,
+  )
   @ApiOperation({ summary: 'List all inspections for a property dashboard' })
   @ApiParam({
     name: 'dashboardId',

@@ -88,12 +88,12 @@ const DEFAULT_TEMPLATE_SECTIONS: StoredSection[] = [
   },
   {
     order: 5,
-    type: SectionType.AERIAL_MAP,
-    label: 'Aerial Map',
+    type: SectionType.DRONE_AERIAL,
+    label: 'Drone Aerial Overview',
     isDynamic: false,
     config: {
       embedType: 'url',
-      placeholder: 'No aerial map available for this inspection.',
+      placeholder: 'No Drone Aerial overview available for this inspection.',
     },
     style: { width: '1/2' },
   },

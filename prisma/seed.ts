@@ -123,8 +123,8 @@ export const INSPECTION_CRITERIA_SEED = {
       accept: ['image/*', 'video/*'],
     },
     {
-      key: 'aerialMap',
-      label: 'Aerial Map',
+      key: 'droneAerial',
+      label: 'Drone Aerial Overview',
       placeholder: 'Upload your file.',
       type: 'file',
       isSystem: true,
@@ -238,11 +238,12 @@ export const DASHBOARD_TEMPLATE_SEED = {
     },
     {
       order: 4,
-      type: 'aerial_map',
-      label: 'Aerial Map',
+      type: 'drone_aerial',
+      label: 'Drone Aerial Overview',
       config: {
-        embedType: 'url', // renders MediaFile with mediaFieldKey="aerialMap"
-        placeholder: 'No aerial map available for this inspection.',
+        embedType: 'url', // renders MediaFile with mediaFieldKey="droneAerial"
+        placeholder:
+          'No Drone Aerial Overview available for this inspection.',
       },
     },
     {

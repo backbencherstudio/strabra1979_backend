@@ -327,7 +327,7 @@ export class InspectionCriteriaController {
   })
   @ApiParam({
     name: 'fieldKey',
-    description: 'e.g. "aerialMap" or "custom_media_1748291234"',
+    description: 'e.g. "droneAerial" or "custom_media_1748291234"',
   })
   updateMediaField(
     @Param('criteriaId') criteriaId: string,

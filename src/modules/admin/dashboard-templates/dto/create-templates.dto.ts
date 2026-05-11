@@ -22,7 +22,7 @@ export enum SectionType {
   HEALTH_SNAPSHOT = 'health_snapshot',
   MEDIA_GRID = 'media_grid',
   TOUR_3D = 'tour_3d',
-  AERIAL_MAP = 'aerial_map',
+  DRONE_AERIAL = 'drone_aerial', // matches your schema comment
   ROOF_HEALTH_RATING = 'roof_health_rating',
   REPAIR_PLANNING = 'repair_planning', // matches your schema comment
   DOCUMENTS = 'documents',
@@ -162,7 +162,7 @@ export class TextFieldConfigDto {
  * Corresponds to "Add More Supporting Media & Embedded Contents" modal
  */
 export class MediaFieldConfigDto {
-  @ApiProperty({ example: 'Aerial Map' })
+  @ApiProperty({ example: 'Drone Aerial Overview' })
   @IsString()
   @IsNotEmpty()
   title: string;
