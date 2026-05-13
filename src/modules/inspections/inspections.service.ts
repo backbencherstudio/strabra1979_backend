@@ -408,7 +408,7 @@ export class InspectionService {
       const session = await this.prisma.uploadSession.findFirst({
         where: {
           id: sess.sessionId,
-          userId: adminId, // admin or the original inspector? Use adminId for update
+          // userId: adminId, // admin or the original inspector? Use adminId for update
           status: 'COMPLETED',
           expiresAt: { gt: new Date() },
         },
