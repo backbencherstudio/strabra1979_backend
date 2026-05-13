@@ -116,7 +116,7 @@ export class InspectionController {
   @ApiOkResponse({ description: 'Inspection updated successfully.' })
   updateInspection(
     @Param('inspectionId') inspectionId: string,
-    @Body() dto: UpdateInspectionDto,
+    @Body() dto: UpdateInspectionDto, 
     @Req() req: Request,
   ) {
     return this.service.updateInspection(inspectionId, req.user.userId, dto);
