@@ -258,6 +258,8 @@ model Inspection {
   repairItems Json @default("[]")
 
   overallScore  Float?
+  totalScore   Float?
+  overallScorePercentage Float?
   healthLabel   String?
   remainingLife String?
 
@@ -497,6 +499,8 @@ model Notification {
   notification_event    NotificationEvent? @relation(fields: [notification_event_id], references: [id])
 
   entity_id String?
+
+  isActionTaken Boolean @default(false) // e.g. whether the PM has approved/declined the access request in the notification
 
   metadata Json? // Stores requestId, actions, etc.
 

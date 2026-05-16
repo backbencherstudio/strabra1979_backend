@@ -8,6 +8,8 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  Post,
+  Body,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -16,6 +18,7 @@ import {
   ApiOkResponse,
   ApiQuery,
   ApiParam,
+  ApiBody,
 } from '@nestjs/swagger';
 import { NotificationService } from './notification.service';
 import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
@@ -54,5 +57,13 @@ export class NotificationController {
   @ApiOperation({ summary: 'Mark all notifications as read' })
   markAllAsRead(@Req() req: Request) {
     return this.service.markAllAsRead(req.user.userId);
+  }
+
+  @Post(':id/action')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Mark notification action as taken' })
+  @ApiParam({ name: 'id', description: 'Notification ID' })
+  async takeAction(@Param('id') id: string, @Req() req: Request) {
+    return this.service.handleAction(id, req.user.userId);
   }
 }

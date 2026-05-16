@@ -549,6 +549,40 @@ export class NotificationService {
     };
   }
 
+  async handleAction(notificationId: string, userId: string) {
+    // Find the notification
+    const notification = await this.prisma.notification.findFirst({
+      where: {
+        id: notificationId,
+        receiver_id: userId,
+        isActionTaken: false, // Only allow if action not taken yet
+      },
+    });
+
+    if (!notification) {
+      throw new Error('Notification not found or action already taken');
+    }
+
+    // Simply mark the notification as action taken
+    const updated = await this.prisma.notification.update({
+      where: { id: notification.id },
+      data: { isActionTaken: true },
+    });
+
+    // Emit WebSocket event to update UI in real-time
+    this.gateway.sendToUser(userId, 'notification:action_taken', {
+      notificationId: notification.id,
+      success: true,
+      timestamp: new Date().toISOString(),
+    });
+
+    return {
+      success: true,
+      message: 'Action recorded successfully',
+      data: updated,
+    };
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // PRIVATE HELPERS
   // ─────────────────────────────────────────────────────────────────────────

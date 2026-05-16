@@ -7,6 +7,7 @@ import {
   IsObject,
   IsPositive,
   ValidateNested,
+  Min,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -100,7 +101,7 @@ export class SubmitInspectionDto {
 
   @ApiPropertyOptional({
     example: 8000,
-    description: 'NTE value (Not‑To‑Exceed). Leave empty if not applicable.',
+    description: 'NTE value (Not-To-Exceed). Leave empty if not applicable.',
     type: Number,
     nullable: true,
   })
@@ -111,7 +112,7 @@ export class SubmitInspectionDto {
     return isNaN(num) ? value : num;
   })
   @IsNumber({}, { message: 'nteValue must be a number' })
-  @IsPositive()
+  @Min(0, { message: 'nteValue cannot be negative' })
   nteValue?: number | null;
 
   @ApiPropertyOptional({ example: 'No active leaks at time of inspection.' })
@@ -201,7 +202,7 @@ export class UpdateInspectionDto {
 
   @ApiPropertyOptional({
     example: 8000,
-    description: 'Updated NTE value. Leave empty if not applicable.',
+    description: 'NTE value (Not-To-Exceed). Leave empty if not applicable.',
     type: Number,
     nullable: true,
   })
@@ -212,7 +213,7 @@ export class UpdateInspectionDto {
     return isNaN(num) ? value : num;
   })
   @IsNumber({}, { message: 'nteValue must be a number' })
-  @IsPositive()
+  @Min(0, { message: 'nteValue cannot be negative' })
   nteValue?: number | null;
 
   @ApiPropertyOptional({

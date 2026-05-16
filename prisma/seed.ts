@@ -41,7 +41,7 @@ export const INSPECTION_CRITERIA_SEED = {
       required: false,
       isSystem: true,
       order: 2,
-      options: ['Commercial', 'Residential'],
+      options: ['Commercial', 'Residential', 'Industrial', 'HOA / Condo'],
     },
     {
       key: 'roofSystemType',
@@ -51,7 +51,16 @@ export const INSPECTION_CRITERIA_SEED = {
       required: false,
       isSystem: true,
       order: 3,
-      options: ['TPO', 'Metal', 'Shingle'],
+      options: [
+        'Single Ply Membrane',
+        'Modified Bitumen',
+        'BUR',
+        'Metal',
+        'Shingle',
+        'Tile',
+        'Coating',
+        'Multiple',
+      ],
     },
     {
       key: 'drainageType',
@@ -61,7 +70,7 @@ export const INSPECTION_CRITERIA_SEED = {
       required: false,
       isSystem: true,
       order: 4,
-      options: ['Internal', 'External'],
+      options: ['Drains', 'Scuppers', 'Gutters', 'Multiple', 'Sloped', 'None'],
     },
   ],
 
@@ -109,6 +118,13 @@ export const INSPECTION_CRITERIA_SEED = {
       isSystem: true,
       order: 6,
     },
+    {
+      key: 'structuralSafety',
+      label: 'Structural & Safety',
+      maxPoints: 10,
+      isSystem: true,
+      order: 7,
+    },
   ],
 
   // ── mediaFields Json ────────────────────────────────────────────────────────
@@ -152,27 +168,26 @@ export const INSPECTION_CRITERIA_SEED = {
   ],
 
   // ── nteConfig Json ──────────────────────────────────────────────────────────
-  // { "label": "NTE (Not-To-Exceed)", "placeholder": "Enter NTE" }
   nteConfig: {
     label: 'NTE (Not-To-Exceed)',
     placeholder: 'Enter NTE',
   },
 
   // ── additionalNotesConfig Json ──────────────────────────────────────────────
-  // { "label": "Additional Notes/Comments", "placeholder": "Type Any Additional Notes/Comments" }
   additionalNotesConfig: {
     label: 'Additional Notes/Comments',
     placeholder: 'Type Any Additional Notes/Comments',
   },
 
   // ── repairPlanningConfig Json ───────────────────────────────────────────────
-  // { "statuses": ["Urgent", "Maintenance", "Replacement Planning"] }
-  // Only stores the available status options — actual repair items go in Inspection.repairItems
   repairPlanningConfig: {
     statuses: ['Urgent', 'Maintenance', 'Replacement Planning'],
   },
 
   // ── healthThresholdConfig Json ──────────────────────────────────────────────
+  // Keyed by roofSystemType value. Each entry defines good/fair/poor bands
+  // expressed as remaining-life years (matching the dropdown options above).
+  // "Multiple" falls back to the most conservative profile (Shingle/Coating).
   healthThresholdConfig: {
     good: {
       minScore: 70,
@@ -242,8 +257,7 @@ export const DASHBOARD_TEMPLATE_SEED = {
       label: 'Drone Aerial Overview',
       config: {
         embedType: 'url', // renders MediaFile with mediaFieldKey="droneAerial"
-        placeholder:
-          'No Drone Aerial Overview available for this inspection.',
+        placeholder: 'No Drone Aerial Overview available for this inspection.',
       },
     },
     {
