@@ -24,6 +24,7 @@ import { NotificationService } from './notification.service';
 import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
 import { Request } from 'express';
 import { SWAGGER_AUTH } from 'src/common/swagger/swagger-auth';
+import { TakeNotificationActionDto } from './dto/notification.dto';
 
 @ApiTags('Notifications')
 @ApiBearerAuth(SWAGGER_AUTH.operational)
@@ -61,9 +62,17 @@ export class NotificationController {
 
   @Post(':id/action')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Mark notification action as taken' })
+  @ApiOperation({
+    summary: 'Mark notification action as taken (accept / decline)',
+  })
   @ApiParam({ name: 'id', description: 'Notification ID' })
-  async takeAction(@Param('id') id: string, @Req() req: Request) {
-    return this.service.handleAction(id, req.user.userId);
+  async takeAction(
+    @Param('id') id: string,
+    @Body() dto: TakeNotificationActionDto,
+    @Req() req: Request,
+  ) {
+    const userId = req.user['userId'];
+
+    return this.service.handleAction(id, userId, dto.action);
   }
 }
