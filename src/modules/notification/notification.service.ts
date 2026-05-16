@@ -8,6 +8,7 @@ import {
   WS_EVENTS,
 } from './notification.const';
 import { inspect } from 'util';
+import { TakeNotificationActionDto } from './dto/notification.dto';
 
 @Injectable()
 export class NotificationService {
@@ -549,7 +550,12 @@ export class NotificationService {
     };
   }
 
-  async handleAction(notificationId: string, userId: string) {
+  async handleAction(
+    notificationId: string,
+    userId: string,
+    action: 'ACCEPT' | 'DECLINE',
+  ) {
+    console.log(action);
     // Find the notification
     const notification = await this.prisma.notification.findFirst({
       where: {
@@ -557,30 +563,68 @@ export class NotificationService {
         receiver_id: userId,
         isActionTaken: false, // Only allow if action not taken yet
       },
+      include: { notification_event: true, sender: true },
     });
 
     if (!notification) {
       throw new Error('Notification not found or action already taken');
     }
 
-    // Simply mark the notification as action taken
-    const updated = await this.prisma.notification.update({
-      where: { id: notification.id },
-      data: { isActionTaken: true },
-    });
+    if (action === 'ACCEPT') {
+      // Simply mark the notification as action taken
+      const updated = await this.prisma.notification.update({
+        where: { id: notification.id },
+        data: {
+          isActionTaken: true,
+          notification_event: {
+            update: {
+              text: `The registration request has been approved. The user can now access **${notification?.sender.role}** features`,
+            },
+          },
+        },
+        include: { notification_event: true, sender: true },
+      });
 
-    // Emit WebSocket event to update UI in real-time
-    this.gateway.sendToUser(userId, 'notification:action_taken', {
-      notificationId: notification.id,
-      success: true,
-      timestamp: new Date().toISOString(),
-    });
+      // Emit WebSocket event to update UI in real-time
+      this.gateway.sendToUser(userId, 'notification:action_taken', {
+        notificationId: notification.id,
+        success: true,
+        message: updated.notification_event.text,
+        timestamp: new Date().toISOString(),
+      });
+      return {
+        success: true,
+        message: 'Action recorded successfully',
+        data: updated,
+      };
+    } else {
+      // For DECLINE, we can either delete the notification or mark it as action taken with a different message
+      const updated = await this.prisma.notification.update({
+        where: { id: notification.id },
+        data: {
+          isActionTaken: true,
+          notification_event: {
+            update: {
+              text: `The registration request has been declined. The user will not have access to **${notification?.sender.role}** features.`,
+            },
+          },
+        },
+        include: { notification_event: true, sender: true },
+      });
 
-    return {
-      success: true,
-      message: 'Action recorded successfully',
-      data: updated,
-    };
+      // Emit WebSocket event to update UI in real-time
+      this.gateway.sendToUser(userId, 'notification:action_taken', {
+        notificationId: notification.id,
+        success: true,
+        message: updated.notification_event.text,
+        timestamp: new Date().toISOString(),
+      });
+      return {
+        success: true,
+        message: 'Action recorded successfully',
+        data: updated,
+      };
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────

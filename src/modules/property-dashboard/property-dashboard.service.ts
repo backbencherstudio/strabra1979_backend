@@ -1125,8 +1125,22 @@ export class PropertyDashboardService {
     };
   }
 
-  private _resolveUrl(path: string): string {
-    const appUrl = appConfig().app.url;
-    return `${appUrl}/public/storage${path}`;
+  private _resolveUrl(key: string): string {
+    const isDevelopment = appConfig().app.node_env === 'development';
+
+    if (isDevelopment) {
+      // Development: use local MinIO IP
+      const minioEndpoint =
+        appConfig().fileSystems.s3.endpoint || 'http://192.168.7.68:9005';
+      const bucket = appConfig().fileSystems.s3.bucket || 'uploads';
+      return `${minioEndpoint}/${bucket}/${key}`;
+    } else {
+      // Production: use public domain with HTTPS
+      const publicEndpoint =
+        appConfig().fileSystems.s3.publicEndpoint ||
+        'https://backend.roofwellnesshub.com';
+      const bucket = appConfig().fileSystems.s3.bucket || 'uploads';
+      return `${publicEndpoint}/${bucket}/${key}`;
+    }
   }
 }
