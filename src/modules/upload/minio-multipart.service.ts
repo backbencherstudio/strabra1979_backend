@@ -43,6 +43,15 @@ export class MinioMultipartService {
     }
   }
 
+  private _resolveFileType(
+    mimetype: string,
+  ): 'PHOTO' | 'VIDEO' | 'PDF' | 'EMBED' {
+    if (mimetype.startsWith('video/')) return 'VIDEO';
+    if (mimetype === 'application/pdf') return 'PDF';
+    if (mimetype.startsWith('image/')) return 'PHOTO';
+    return 'PHOTO'; // default fallback
+  }
+
   async initiateUpload(
     userId: string,
     fileName: string,
@@ -227,12 +236,17 @@ export class MinioMultipartService {
     // Construct the final URL
     const url = `${publicEndpoint}/${this.bucketName}/${session.key}`;
 
+    // Determine file type from mimeType
+    const fileType = this._resolveFileType(session.mimeType);
+
     return {
       location: url,
       key: session.key,
       url,
       fileName: session.fileName,
       fileSize: session.fileSize,
+      mimeType: session.mimeType,
+      fileType,
     };
   }
 

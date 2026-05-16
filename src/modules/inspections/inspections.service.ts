@@ -14,6 +14,7 @@ import {
 import { NotificationService } from '../notification/notification.service';
 import { SojebStorage } from 'src/common/lib/Disk/SojebStorage';
 import appConfig from 'src/config/app.config';
+import { HealthThresholdConfigDto } from '../admin/inspection-criteria/dto/inspection-criteria.dto';
 
 interface ScoringCategory {
   key: string;
@@ -102,10 +103,11 @@ export class InspectionService {
       inspectorRole,
     );
 
-    // ── Validate scheduled inspection (unchanged) ─────────────────────────
+    // ── Validate scheduled inspection ─────────────────────────────────────
     const activeSchedule = await this.prisma.scheduledInspection.findUnique({
       where: { id: scheduledInspectionId },
     });
+
     if (!activeSchedule)
       throw new NotFoundException(
         `Scheduled inspection "${scheduledInspectionId}" not found.`,
@@ -116,39 +118,83 @@ export class InspectionService {
       );
     if (activeSchedule.assignedTo !== inspectorId)
       throw new ForbiddenException('This inspection is not assigned to you.');
-    if (activeSchedule.status === ScheduledInspectionStatus.COMPLETE)
+    if (activeSchedule.status === 'COMPLETE')
       throw new BadRequestException('Already completed.');
-    if (activeSchedule.status === ScheduledInspectionStatus.ASSIGNED)
+    if (activeSchedule.status === 'ASSIGNED')
       throw new BadRequestException('Call /start endpoint first.');
-    if (activeSchedule.status === ScheduledInspectionStatus.DUE)
+    if (activeSchedule.status === 'DUE')
       throw new BadRequestException('Inspection overdue. Contact admin.');
-    if (activeSchedule.status !== ScheduledInspectionStatus.IN_PROGRESS)
+    if (activeSchedule.status !== 'IN_PROGRESS')
       throw new BadRequestException('Invalid state for submission.');
 
-    // ── Extract criteria configs (unchanged) ──────────────────────────────
+    // ── Extract criteria configs with type assertions ─────────────────────
     const headerFields = criteria.headerFields as unknown as HeaderField[];
     const categories =
       criteria.scoringCategories as unknown as ScoringCategory[];
     const mediaSlots = criteria.mediaFields as unknown as MediaFieldSlot[];
     const repairConfig =
       criteria.repairPlanningConfig as unknown as RepairConfig;
-    const thresholds =
-      criteria.healthThresholdConfig as unknown as HealthThreshold;
+    const healthThresholdConfig =
+      criteria.healthThresholdConfig as unknown as HealthThresholdConfigDto;
 
-    // ── Header & score validations (unchanged) ────────────────────────────
+    // ── Get the roof system type from headerData ──────────────────────────
+    const roofSystemType = dto.headerData?.roofSystemType || 'Multiple';
+
+    // ── Validate required header fields ───────────────────────────────────
     for (const field of headerFields) {
       if (field.required && !dto.headerData?.[field.key])
         throw new BadRequestException(
           `Required header field "${field.label}" is missing.`,
         );
     }
+
+    // ── Calculate total possible score and validate submitted scores ───────
+    const totalPossibleScore = categories.reduce(
+      (sum, cat) => sum + cat.maxPoints,
+      0,
+    );
+
+    let actualScore = 0;
+    const categoryScores: Record<string, { score: number; notes?: string }> =
+      {};
+
     for (const category of categories) {
       const submitted = dto.scores?.[category.key];
-      if (submitted !== undefined && submitted.score > category.maxPoints)
-        throw new BadRequestException(
-          `Score for "${category.label}" is ${submitted.score} — max allowed is ${category.maxPoints}.`,
-        );
+
+      if (submitted !== undefined && submitted !== null) {
+        // Validate score doesn't exceed maxPoints
+        if (submitted.score > category.maxPoints) {
+          throw new BadRequestException(
+            `Score for "${category.label}" is ${submitted.score} — max allowed is ${category.maxPoints}.`,
+          );
+        }
+        if (submitted.score < 0) {
+          throw new BadRequestException(
+            `Score for "${category.label}" cannot be negative.`,
+          );
+        }
+
+        actualScore += submitted.score;
+        categoryScores[category.key] = {
+          score: submitted.score,
+          notes: submitted.notes || '',
+        };
+      } else {
+        // If score not provided, default to 0
+        categoryScores[category.key] = {
+          score: 0,
+          notes: '',
+        };
+      }
     }
+
+    // Calculate overall score percentage
+    const overallScorePercentage =
+      totalPossibleScore > 0
+        ? Number(((actualScore / totalPossibleScore) * 100).toFixed(2))
+        : 0;
+
+    // ── Validate repair items statuses ────────────────────────────────────
     const { statuses } = repairConfig;
     for (const item of dto.repairItems ?? []) {
       if (!statuses.includes(item.status))
@@ -168,7 +214,7 @@ export class InspectionService {
         where: {
           id: sess.sessionId,
           userId: inspectorId,
-          status: UploadStatus.COMPLETED,
+          status: 'COMPLETED',
           expiresAt: { gt: new Date() },
         },
       });
@@ -178,21 +224,49 @@ export class InspectionService {
         );
     }
 
-    // ── Compute score & health (unchanged) ─────────────────────────────────
-    const overallScore = categories.reduce(
-      (sum, cat) => sum + (dto.scores?.[cat.key]?.score ?? 0),
-      0,
-    );
-    let healthLabel = 'Poor';
-    let remainingLife = `${thresholds.poor.remainingLifeMinYears}-${thresholds.poor.remainingLifeMaxYears} Years`;
-    if (overallScore >= thresholds.good.minScore) {
-      healthLabel = 'Good';
-      remainingLife = `${thresholds.good.remainingLifeMinYears}-${thresholds.good.remainingLifeMaxYears} Years`;
-    } else if (overallScore >= thresholds.fair.minScore) {
-      healthLabel = 'Fair';
-      remainingLife = `${thresholds.fair.remainingLifeMinYears}-${thresholds.fair.remainingLifeMaxYears} Years`;
+    // ── Compute health label & remaining life based on roof system type ───
+    // Safely access the threshold with fallback
+    let roofThresholds;
+    if (healthThresholdConfig && healthThresholdConfig[roofSystemType]) {
+      roofThresholds = healthThresholdConfig[roofSystemType];
+    } else if (healthThresholdConfig && healthThresholdConfig['Multiple']) {
+      roofThresholds = healthThresholdConfig['Multiple'];
+    } else {
+      // Fallback default thresholds if config is missing
+      roofThresholds = {
+        good: {
+          minScore: 70,
+          maxScore: 100,
+          remainingLifeMinYears: 20,
+          remainingLifeMaxYears: 30,
+        },
+        fair: {
+          minScore: 30,
+          maxScore: 69,
+          remainingLifeMinYears: 10,
+          remainingLifeMaxYears: 20,
+        },
+        poor: {
+          minScore: 0,
+          maxScore: 29,
+          remainingLifeMinYears: 0,
+          remainingLifeMaxYears: 10,
+        },
+      };
     }
 
+    let healthLabel = 'Poor';
+    let remainingLife = `${roofThresholds.poor.remainingLifeMinYears}-${roofThresholds.poor.remainingLifeMaxYears} Years`;
+
+    if (actualScore >= roofThresholds.good.minScore) {
+      healthLabel = 'Good';
+      remainingLife = `${roofThresholds.good.remainingLifeMinYears}-${roofThresholds.good.remainingLifeMaxYears} Years`;
+    } else if (actualScore >= roofThresholds.fair.minScore) {
+      healthLabel = 'Fair';
+      remainingLife = `${roofThresholds.fair.remainingLifeMinYears}-${roofThresholds.fair.remainingLifeMaxYears} Years`;
+    }
+
+    // Format repair items
     const repairItems = (dto.repairItems ?? []).map((item, i) => ({
       id: `repair_${Date.now()}_${i}`,
       title: item.title,
@@ -200,20 +274,22 @@ export class InspectionService {
       description: item.description ?? '',
     }));
 
-    // ── Transaction: create inspection, link embed fields & sessions ───────
+    // ── Transaction: create inspection, link embed fields & sessions ──────
     const { inspection, savedMediaFiles } = await this.prisma.$transaction(
       async (tx) => {
-        // 1. Create inspection
+        // 1. Create inspection with all calculated fields
         const inspection = await tx.inspection.create({
           data: {
             dashboardId,
             inspectorId,
             headerData: dto.headerData as any,
-            scores: (dto.scores ?? {}) as any,
+            scores: categoryScores as any,
             repairItems: repairItems as any,
             nteValue: dto.nteValue ?? null,
             additionalComments: dto.additionalComments ?? null,
-            overallScore,
+            overallScore: actualScore,
+            totalScore: totalPossibleScore,
+            overallScorePercentage: overallScorePercentage,
             healthLabel,
             remainingLife,
             inspectedAt: dto.inspectedAt
@@ -224,7 +300,7 @@ export class InspectionService {
 
         const savedMediaFiles = [];
 
-        // 2. Embed fields (unchanged)
+        // 2. Embed fields (YouTube, 3D tours, etc.)
         for (const [mediaFieldKey, embedUrl] of Object.entries(
           dto.embedFields ?? {},
         )) {
@@ -248,54 +324,56 @@ export class InspectionService {
           const session = await tx.uploadSession.findUnique({
             where: { id: sess.sessionId },
           });
-          if (!session) continue; // should not happen after validation
+          if (!session) continue;
+
           const mf = await tx.mediaFile.create({
             data: {
               inspectionId: inspection.id,
               fileName: session.fileName,
               fileType: this._resolveFileType(session.mimeType),
-              url: session.key, // store MinIO key, generate signed URL when serving
+              url: session.key,
               size: session.fileSize,
               mediaFieldKey: sess.mediaFieldKey,
             },
           });
           savedMediaFiles.push(mf);
-          // Mark session as assigned (so it cannot be reused)
+
           await tx.uploadSession.update({
             where: { id: sess.sessionId },
             data: {
-              status: UploadStatus.ASSIGNED,
+              status: 'ASSIGNED',
               inspectionId: inspection.id,
               mediaFieldKey: sess.mediaFieldKey,
             },
           });
         }
 
-        // 4. Mark schedule COMPLETE
+        // 4. Mark schedule as COMPLETE
         await tx.scheduledInspection.update({
           where: { id: activeSchedule.id },
           data: {
-            status: ScheduledInspectionStatus.COMPLETE,
+            status: 'COMPLETE',
             inspectionId: inspection.id,
           },
         });
 
-        // 5. Clear nextInspectionDate
+        // 5. Clear nextInspectionDate on property
         await tx.property.update({
           where: { id: dashboard.property.id },
           data: { nextInspectionDate: null },
         });
 
-        // 6. Activity log
+        // 6. Create activity log
         const inspector = await tx.user.findUnique({
           where: { id: inspectorId },
           select: { username: true, role: true },
         });
+
         await tx.activityLog.create({
           data: {
-            category: ActivityCategory.PROPERTY_DASHBOARD_UPDATE,
+            category: 'PROPERTY_DASHBOARD_UPDATE',
             actor_role: inspector?.role ?? null,
-            message: `${inspector?.username ?? 'Inspector'} submitted an inspection report for ${dashboard.property?.name ?? 'Unknown Property'}`,
+            message: `${inspector?.username ?? 'Inspector'} submitted an inspection report for ${dashboard.property?.name ?? 'Unknown Property'}. Score: ${actualScore}/${totalPossibleScore} (${overallScorePercentage}%) - ${healthLabel}`,
           },
         });
 
@@ -303,25 +381,32 @@ export class InspectionService {
       },
     );
 
-    // ── Notifications (unchanged) ─────────────────────────────────────────
+    // ── Send notifications (non-transactional) ─────────────────────────────
     const propertyName = dashboard.property?.name ?? 'Unknown Property';
     const inspector = await this.prisma.user.findUnique({
       where: { id: inspectorId },
       select: { username: true, role: true },
     });
+
+    // Notify admins
     const admins = await this.prisma.user.findMany({
       where: { role: 'ADMIN', status: 'ACTIVE', isDeleted: false },
       select: { id: true },
     });
-    await this.notifications.inspectionReportUpdate({
-      adminIds: admins.map((a) => a.id),
-      inspectorId,
-      inspectorName: inspector?.username ?? 'Inspector',
-      propertyId: dashboard.property?.id ?? dashboardId,
-      propertyName,
-      inspectionId: inspection.id,
-      dashboardId,
-    });
+
+    if (admins.length) {
+      await this.notifications.inspectionReportUpdate({
+        adminIds: admins.map((a) => a.id),
+        inspectorId,
+        inspectorName: inspector?.username ?? 'Inspector',
+        propertyId: dashboard.property?.id ?? dashboardId,
+        propertyName,
+        inspectionId: inspection.id,
+        dashboardId,
+      });
+    }
+
+    // Notify property access users
     const accesses = await this.prisma.propertyAccess.findMany({
       where: {
         propertyId: dashboard.property?.id,
@@ -330,6 +415,7 @@ export class InspectionService {
       },
       select: { userId: true },
     });
+
     if (accesses.length) {
       await this.notifications.dashboardUpdated({
         userIds: accesses.map((a) => a.userId),
@@ -338,11 +424,11 @@ export class InspectionService {
         propertyName,
         inspectionId: inspection.id,
         dashboardId,
-        changeNote: 'New inspection report has been submitted',
+        changeNote: `New inspection report submitted. Score: ${actualScore}/${totalPossibleScore} (${overallScorePercentage}%) - ${healthLabel}`,
       });
     }
 
-    // Return with signed URLs for media files (implement `_getSignedUrl` helper)
+    // ── Return response with signed URLs for media files ───────────────────
     return {
       success: true,
       message: 'Inspection submitted successfully',
@@ -353,7 +439,14 @@ export class InspectionService {
           url:
             file.fileType === 'EMBED' ? file.url : this._getSignedUrl(file.url),
         })),
-        summary: { overallScore, healthLabel, remainingLife },
+        summary: {
+          overallScore: actualScore,
+          totalScore: totalPossibleScore,
+          overallScorePercentage: overallScorePercentage,
+          healthLabel,
+          remainingLife,
+          roofSystemType,
+        },
       },
     };
   }
@@ -385,81 +478,204 @@ export class InspectionService {
       throw new NotFoundException(`Inspection "${inspectionId}" not found.`);
 
     // ── Only allow editing COMPLETE inspections (not yet published) ────────
-    if (
-      inspection.scheduledInspection?.status !==
-      ScheduledInspectionStatus.COMPLETE
-    )
+    if (inspection.scheduledInspection?.status !== 'COMPLETE') {
       throw new BadRequestException(
         `Only COMPLETE inspections can be edited. Current status: ${inspection.scheduledInspection?.status ?? 'unknown'}.`,
       );
+    }
 
     const criteria = inspection.dashboard.property?.activeTemplate?.criteria;
-    const mediaSlots = (criteria?.mediaFields ??
+
+    if (!criteria) {
+      throw new BadRequestException('Criteria not found for this inspection');
+    }
+
+    const mediaSlots = (criteria.mediaFields ??
       []) as unknown as MediaFieldSlot[];
     const validSlotKeys = mediaSlots.map((s) => s.key);
 
     // ── Validate media sessions (new files) ───────────────────────────────
     for (const sess of dto.mediaSessions ?? []) {
-      if (!validSlotKeys.includes(sess.mediaFieldKey))
+      if (!validSlotKeys.includes(sess.mediaFieldKey)) {
         throw new BadRequestException(
           `Invalid mediaFieldKey: ${sess.mediaFieldKey}`,
         );
+      }
 
       const session = await this.prisma.uploadSession.findFirst({
         where: {
           id: sess.sessionId,
-          // userId: adminId, // admin or the original inspector? Use adminId for update
           status: 'COMPLETED',
           expiresAt: { gt: new Date() },
         },
       });
 
-      console.log(session);
-      if (!session)
+      if (!session) {
         throw new BadRequestException(
           `Invalid or expired upload session: ${sess.sessionId}`,
         );
-    }
-
-    // ── Recompute score + health if scores changed ────────────────────────
-    let overallScore = inspection.overallScore;
-    let healthLabel = inspection.healthLabel;
-    let remainingLife = inspection.remainingLife;
-
-    if (dto.scores && criteria) {
-      const categories =
-        criteria.scoringCategories as unknown as ScoringCategory[];
-      const thresholds =
-        criteria.healthThresholdConfig as unknown as HealthThreshold;
-
-      overallScore = categories.reduce(
-        (sum, cat) =>
-          sum +
-          (dto.scores?.[cat.key]?.score ??
-            (inspection.scores as any)?.[cat.key]?.score ??
-            0),
-        0,
-      );
-
-      healthLabel = 'Poor';
-      remainingLife = `${thresholds.poor.remainingLifeMinYears}-${thresholds.poor.remainingLifeMaxYears} Years`;
-      if (overallScore >= thresholds.good.minScore) {
-        healthLabel = 'Good';
-        remainingLife = `${thresholds.good.remainingLifeMinYears}-${thresholds.good.remainingLifeMaxYears} Years`;
-      } else if (overallScore >= thresholds.fair.minScore) {
-        healthLabel = 'Fair';
-        remainingLife = `${thresholds.fair.remainingLifeMinYears}-${thresholds.fair.remainingLifeMaxYears} Years`;
       }
     }
 
-    const repairItems = dto.repairItems
-      ? dto.repairItems.map((item, i) => ({
-          id: `repair_${Date.now()}_${i}`,
-          title: item.title,
-          status: item.status,
-          description: item.description ?? '',
-        }))
-      : undefined;
+    // ── Get categories and thresholds for score calculation ────────────────
+    const categories =
+      criteria.scoringCategories as unknown as ScoringCategory[];
+    const healthThresholdConfig =
+      criteria.healthThresholdConfig as unknown as HealthThresholdConfigDto;
+
+    // Calculate total possible score
+    const totalPossibleScore = categories.reduce(
+      (sum, cat) => sum + cat.maxPoints,
+      0,
+    );
+
+    // ── Recompute score + health if scores changed ────────────────────────
+    let overallScore = inspection.overallScore ?? 0;
+    let overallScorePercentage = inspection.overallScorePercentage ?? 0;
+    let healthLabel = inspection.healthLabel;
+    let remainingLife = inspection.remainingLife;
+
+    if (dto.scores) {
+      // Get existing scores
+      const existingScores = inspection.scores as Record<
+        string,
+        { score: number; notes?: string }
+      >;
+
+      // Calculate new overall score
+      overallScore = categories.reduce((sum, cat) => {
+        const newScore = dto.scores?.[cat.key]?.score;
+        const existingScore = existingScores?.[cat.key]?.score;
+        const score = newScore !== undefined ? newScore : (existingScore ?? 0);
+        return sum + score;
+      }, 0);
+
+      // Validate scores don't exceed maxPoints
+      for (const category of categories) {
+        const newScore = dto.scores?.[category.key]?.score;
+        if (newScore !== undefined) {
+          if (newScore > category.maxPoints) {
+            throw new BadRequestException(
+              `Score for "${category.label}" is ${newScore} — max allowed is ${category.maxPoints}.`,
+            );
+          }
+          if (newScore < 0) {
+            throw new BadRequestException(
+              `Score for "${category.label}" cannot be negative.`,
+            );
+          }
+        }
+      }
+
+      // Calculate percentage
+      overallScorePercentage =
+        totalPossibleScore > 0
+          ? Number(((overallScore / totalPossibleScore) * 100).toFixed(2))
+          : 0;
+
+      // ── Get roof system type from headerData (merged) ──────────────────────
+      const existingHeaderData = inspection.headerData as Record<
+        string,
+        string
+      >;
+      const mergedHeaderData = {
+        ...existingHeaderData,
+        ...(dto.headerData ?? {}),
+      };
+      const roofSystemType = mergedHeaderData?.roofSystemType || 'Multiple';
+
+      // Safely get thresholds with fallback
+      let roofThresholds;
+      if (healthThresholdConfig && healthThresholdConfig[roofSystemType]) {
+        roofThresholds = healthThresholdConfig[roofSystemType];
+      } else if (healthThresholdConfig && healthThresholdConfig['Multiple']) {
+        roofThresholds = healthThresholdConfig['Multiple'];
+      } else {
+        // Fallback default thresholds
+        roofThresholds = {
+          good: {
+            minScore: 70,
+            maxScore: 100,
+            remainingLifeMinYears: 20,
+            remainingLifeMaxYears: 30,
+          },
+          fair: {
+            minScore: 30,
+            maxScore: 69,
+            remainingLifeMinYears: 10,
+            remainingLifeMaxYears: 20,
+          },
+          poor: {
+            minScore: 0,
+            maxScore: 29,
+            remainingLifeMinYears: 0,
+            remainingLifeMaxYears: 10,
+          },
+        };
+      }
+
+      // Calculate health label and remaining life
+      healthLabel = 'Poor';
+      remainingLife = `${roofThresholds.poor.remainingLifeMinYears}-${roofThresholds.poor.remainingLifeMaxYears} Years`;
+
+      if (overallScore >= roofThresholds.good.minScore) {
+        healthLabel = 'Good';
+        remainingLife = `${roofThresholds.good.remainingLifeMinYears}-${roofThresholds.good.remainingLifeMaxYears} Years`;
+      } else if (overallScore >= roofThresholds.fair.minScore) {
+        healthLabel = 'Fair';
+        remainingLife = `${roofThresholds.fair.remainingLifeMinYears}-${roofThresholds.fair.remainingLifeMaxYears} Years`;
+      }
+    }
+
+    // ── Process repair items ────────────────────────────────────────────────
+    let repairItems = undefined;
+    if (dto.repairItems) {
+      const repairConfig =
+        criteria.repairPlanningConfig as unknown as RepairConfig;
+      const { statuses } = repairConfig;
+
+      // Validate repair item statuses
+      for (const item of dto.repairItems) {
+        if (!statuses.includes(item.status)) {
+          throw new BadRequestException(
+            `Repair status "${item.status}" is invalid. Allowed: ${statuses.join(', ')}.`,
+          );
+        }
+      }
+
+      repairItems = dto.repairItems.map((item, i) => ({
+        id: `repair_${Date.now()}_${i}`,
+        title: item.title,
+        status: item.status,
+        description: item.description ?? '',
+      }));
+    }
+
+    // ── Merge scores if partial update ─────────────────────────────────────
+    let mergedScores = undefined;
+    if (dto.scores) {
+      const existingScores = inspection.scores as Record<
+        string,
+        { score: number; notes?: string }
+      >;
+      mergedScores = {
+        ...existingScores,
+        ...dto.scores,
+      };
+    }
+
+    // ── Merge header data if partial update ────────────────────────────────
+    let mergedHeaderData = undefined;
+    if (dto.headerData) {
+      const existingHeaderData = inspection.headerData as Record<
+        string,
+        string
+      >;
+      mergedHeaderData = {
+        ...existingHeaderData,
+        ...dto.headerData,
+      };
+    }
 
     // ── Transaction: remove files, update embed fields, add new sessions ───
     const { updated, savedMediaFiles } = await this.prisma.$transaction(
@@ -474,7 +690,7 @@ export class InspectionService {
           });
         }
 
-        const savedMediaFiles = [];
+        const savedMediaFiles: any[] = [];
 
         // 2. Upsert embed fields
         for (const [mediaFieldKey, embedUrl] of Object.entries(
@@ -520,7 +736,7 @@ export class InspectionService {
               inspectionId,
               fileName: session.fileName,
               fileType: this._resolveFileType(session.mimeType),
-              url: session.key, // store MinIO key
+              url: session.key,
               size: session.fileSize,
               mediaFieldKey: sess.mediaFieldKey,
             },
@@ -542,14 +758,21 @@ export class InspectionService {
         const updated = await tx.inspection.update({
           where: { id: inspectionId },
           data: {
-            ...(dto.headerData && { headerData: dto.headerData }),
-            ...(dto.scores && { scores: dto.scores }),
-            ...(repairItems && { repairItems }),
+            ...(mergedHeaderData && { headerData: mergedHeaderData as any }),
+            ...(mergedScores && { scores: mergedScores as any }),
+            ...(repairItems && { repairItems: repairItems as any }),
             ...(dto.nteValue !== undefined && { nteValue: dto.nteValue }),
             ...(dto.additionalComments !== undefined && {
               additionalComments: dto.additionalComments,
             }),
-            ...(dto.scores && { overallScore, healthLabel, remainingLife }),
+            // Always update score-related fields if scores changed
+            ...(dto.scores && {
+              overallScore,
+              totalScore: totalPossibleScore,
+              overallScorePercentage,
+              healthLabel,
+              remainingLife,
+            }),
           },
           include: { mediaFiles: true },
         });
@@ -559,9 +782,11 @@ export class InspectionService {
           inspection.dashboard.property?.name ?? 'Unknown Property';
         await tx.activityLog.create({
           data: {
-            category: ActivityCategory.PROPERTY_DASHBOARD_UPDATE,
+            category: 'PROPERTY_DASHBOARD_UPDATE',
             actor_role: 'ADMIN',
-            message: `Inspection report for ${propertyName} was updated before publishing`,
+            message: dto.scores
+              ? `Inspection report for ${propertyName} was updated. Score: ${overallScore}/${totalPossibleScore} (${overallScorePercentage}%) - ${healthLabel}`
+              : `Inspection report for ${propertyName} was updated (non-score fields only).`,
           },
         });
 
@@ -569,6 +794,7 @@ export class InspectionService {
       },
     );
 
+    // ── Return response with signed URLs ────────────────────────────────────
     return {
       success: true,
       message: 'Inspection updated successfully',
@@ -579,6 +805,15 @@ export class InspectionService {
           url:
             file.fileType === 'EMBED' ? file.url : this._getSignedUrl(file.url),
         })),
+        summary: dto.scores
+          ? {
+              overallScore,
+              totalScore: totalPossibleScore,
+              overallScorePercentage,
+              healthLabel,
+              remainingLife,
+            }
+          : undefined,
       },
     };
   }

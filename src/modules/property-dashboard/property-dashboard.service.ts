@@ -315,7 +315,7 @@ export class PropertyDashboardService {
         inspections: {
           orderBy: { createdAt: 'desc' as const },
           take: 1,
-          select: { overallScore: true, healthLabel: true },
+          select: { id: true, overallScore: true, healthLabel: true },
         },
       },
     };
