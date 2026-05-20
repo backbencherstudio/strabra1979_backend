@@ -152,6 +152,17 @@ export class SubmitInspectionDto {
   @IsOptional()
   @IsObject()
   embedFields?: Record<string, string>;
+
+  @ApiPropertyOptional({
+    description:
+      'IDs of existing MediaFile records to remove from this inspection.',
+    example: ['cmmn96p1s0003fql0sz0t3940'],
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  removeMediaFileIds?: string[];
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -251,6 +262,92 @@ export class UpdateInspectionDto {
     description:
       'IDs of existing MediaFile records to delete before adding new ones.',
     example: ['cmmn96p1s0003fql0sz0t3940', 'cmmn96p1s0004fql0sz0t3941'],
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  removeMediaFileIds?: string[];
+}
+
+export class SaveDraftInspectionDto {
+  @ApiPropertyOptional({
+    description:
+      'Partial or full header field values. No required field validation in draft.',
+    example: {
+      inspectionTitle: '2024 Annual Roof',
+      roofSystemType: 'TPO',
+    },
+  })
+  @IsOptional()
+  @IsObject()
+  headerData?: Record<string, string>;
+
+  @ApiPropertyOptional({
+    description: 'Partial scores. Missing categories default to 0.',
+    example: {
+      surfaceCondition: { score: 22, notes: 'Minor cracks' },
+    },
+  })
+  @IsOptional()
+  @IsObject()
+  scores?: Record<string, { score: number; notes?: string }>;
+
+  @ApiPropertyOptional({
+    description: 'Repair items. Status validation is skipped in draft.',
+    type: [RepairItemDto],
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RepairItemDto)
+  repairItems?: RepairItemDto[];
+
+  @ApiPropertyOptional({ example: 8000, nullable: true })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === '' || value === null || value === undefined) return null;
+    const num = Number(value);
+    return isNaN(num) ? value : num;
+  })
+  @IsNumber({}, { message: 'nteValue must be a number' })
+  @Min(0, { message: 'nteValue cannot be negative' })
+  nteValue?: number | null;
+
+  @ApiPropertyOptional({ example: 'Partial notes so far.' })
+  @IsOptional()
+  @IsString()
+  additionalComments?: string;
+
+  @ApiPropertyOptional({ example: '2024-06-15T09:00:00.000Z' })
+  @IsOptional()
+  @IsString()
+  inspectedAt?: string;
+
+  @ApiPropertyOptional({
+    description: 'Completed upload sessions to attach to this draft.',
+    type: [MediaSessionDto],
+    example: [
+      { sessionId: 'cmm02r3ri0000uku8do7v286a', mediaFieldKey: 'mediaFiles' },
+    ],
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MediaSessionDto)
+  mediaSessions?: MediaSessionDto[];
+
+  @ApiPropertyOptional({
+    description: 'Embed URL fields keyed by mediaFieldKey.',
+    example: { tour3d: 'https://my3dtour.com/abc123' },
+  })
+  @IsOptional()
+  @IsObject()
+  embedFields?: Record<string, string>;
+
+  @ApiPropertyOptional({
+    description: 'IDs of existing MediaFile records to remove from this draft.',
+    example: ['cmmn96p1s0003fql0sz0t3940'],
     type: [String],
   })
   @IsOptional()

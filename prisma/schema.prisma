@@ -249,19 +249,22 @@ model PropertyDashboard {
 // ─────────────────────────────────────────
 
 model Inspection {
-  id          String @id @default(cuid())
+  id          String           @id @default(cuid())
   dashboardId String
   inspectorId String
-
+  scheduledInspectionId String? @unique // Link back to scheduled inspection
+  
+  status InspectionStatus @default(DRAFT) // DRAFT or COMPLETE
+  
   headerData  Json @default("{}")
   scores      Json @default("{}")
   repairItems Json @default("[]")
 
-  overallScore  Float?
-  totalScore   Float?
+  overallScore           Float?
+  totalScore             Float?
   overallScorePercentage Float?
-  healthLabel   String?
-  remainingLife String?
+  healthLabel            String?
+  remainingLife          String?
 
   nteValue           Float?
   additionalComments String?
@@ -272,16 +275,18 @@ model Inspection {
 
   dashboard PropertyDashboard @relation(fields: [dashboardId], references: [id])
   inspector User              @relation(fields: [inspectorId], references: [id])
+  
+  // Single relation back to scheduled inspection - NO fields/references here, just the name
+  scheduledInspection ScheduledInspection? @relation("ScheduledInspectionToInspection")
 
   mediaFiles          MediaFile[]
   folderItems         InspectionFolderItem[]
-  scheduledInspection ScheduledInspection?
 
   @@index([dashboardId])
   @@index([inspectorId])
+  @@index([status])
   @@map("inspections")
 }
-
 model MediaFile {
   id           String @id @default(cuid())
   inspectionId String
@@ -332,21 +337,23 @@ model UploadSession {
 model ScheduledInspection {
   id          String                    @id @default(cuid())
   dashboardId String
-  assignedTo  String // operational user id
-  scheduledAt DateTime // date + time from the modal
+  assignedTo  String
+  scheduledAt DateTime
   status      ScheduledInspectionStatus @default(ASSIGNED)
 
-  // Filled when operational team submits
-  inspectionId String? @unique // links to the Inspection record once submitted
+  // Single inspection reference that can be either draft or complete
+  inspectionId String? @unique
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  createdBy String // admin who scheduled
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdBy String
+  createdByUser User @relation("CreatedSchedules", fields: [createdBy], references: [id])
 
-  dashboard  PropertyDashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
-  assignee   User              @relation("AssignedInspections", fields: [assignedTo], references: [id])
-  creator    User              @relation("CreatedSchedules", fields: [createdBy], references: [id])
-  inspection Inspection?       @relation(fields: [inspectionId], references: [id])
+  dashboard PropertyDashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  assignee  User              @relation("AssignedInspections", fields: [assignedTo], references: [id])
+  
+  // Single relation to Inspection - THIS SIDE OWNS THE FOREIGN KEY (inspectionId)
+  inspection Inspection? @relation("ScheduledInspectionToInspection", fields: [inspectionId], references: [id])
 
   @@map("scheduled_inspections")
 }
@@ -611,4 +618,9 @@ enum ScheduledInspectionStatus {
   COMPLETE // inspection submitted
   DUE // past scheduledAt, not yet started
   PUBLISHED // admin published it
+}
+
+enum InspectionStatus {
+  DRAFT
+  COMPLETE
 }

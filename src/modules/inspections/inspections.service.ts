@@ -5,7 +5,11 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { SubmitInspectionDto, UpdateInspectionDto } from './dto/inspection.dto';
+import {
+  SaveDraftInspectionDto,
+  SubmitInspectionDto,
+  UpdateInspectionDto,
+} from './dto/inspection.dto';
 import {
   ActivityCategory,
   ScheduledInspectionStatus,
@@ -127,7 +131,19 @@ export class InspectionService {
     if (activeSchedule.status !== 'IN_PROGRESS')
       throw new BadRequestException('Invalid state for submission.');
 
-    // ── Extract criteria configs with type assertions ─────────────────────
+    // ── Check for existing draft ──────────────────────────────────────────
+    const existingDraft = await this.prisma.inspection.findFirst({
+      where: {
+        scheduledInspectionId,
+        inspectorId,
+        status: 'DRAFT',
+      },
+      include: {
+        mediaFiles: true,
+      },
+    });
+
+    // ── Extract criteria configs ─────────────────────────────────────────
     const headerFields = criteria.headerFields as unknown as HeaderField[];
     const categories =
       criteria.scoringCategories as unknown as ScoringCategory[];
@@ -148,7 +164,7 @@ export class InspectionService {
         );
     }
 
-    // ── Calculate total possible score and validate submitted scores ───────
+    // ── Calculate total possible score and validate submitted scores ──────
     const totalPossibleScore = categories.reduce(
       (sum, cat) => sum + cat.maxPoints,
       0,
@@ -162,7 +178,6 @@ export class InspectionService {
       const submitted = dto.scores?.[category.key];
 
       if (submitted !== undefined && submitted !== null) {
-        // Validate score doesn't exceed maxPoints
         if (submitted.score > category.maxPoints) {
           throw new BadRequestException(
             `Score for "${category.label}" is ${submitted.score} — max allowed is ${category.maxPoints}.`,
@@ -180,7 +195,6 @@ export class InspectionService {
           notes: submitted.notes || '',
         };
       } else {
-        // If score not provided, default to 0
         categoryScores[category.key] = {
           score: 0,
           notes: '',
@@ -188,7 +202,6 @@ export class InspectionService {
       }
     }
 
-    // Calculate overall score percentage
     const overallScorePercentage =
       totalPossibleScore > 0
         ? Number(((actualScore / totalPossibleScore) * 100).toFixed(2))
@@ -203,14 +216,40 @@ export class InspectionService {
         );
     }
 
-    // ── Validate media sessions ───────────────────────────────────────────
+    // ── Validate media sessions (BEFORE transaction) ──────────────────────
     const validSlotKeys = mediaSlots.map((s) => s.key);
+
+    // Get existing file URLs from draft to skip validation
+    const existingFileUrls = new Set(
+      existingDraft?.mediaFiles
+        .filter((mf) => mf.fileType !== 'EMBED')
+        .map((mf) => mf.url) ?? [],
+    );
+
     for (const sess of dto.mediaSessions ?? []) {
       if (!validSlotKeys.includes(sess.mediaFieldKey))
         throw new BadRequestException(
           `Invalid mediaFieldKey: ${sess.mediaFieldKey}`,
         );
-      const session = await this.prisma.uploadSession.findFirst({
+
+      // First, get the session to check its file URL
+      const session = await this.prisma.uploadSession.findUnique({
+        where: { id: sess.sessionId },
+      });
+
+      if (!session) {
+        throw new BadRequestException(
+          `Upload session not found: ${sess.sessionId}`,
+        );
+      }
+
+      // If this file already exists in the draft, skip validation
+      if (existingFileUrls.has(session.key)) {
+        continue;
+      }
+
+      // Validate new upload session (not in draft)
+      const validSession = await this.prisma.uploadSession.findFirst({
         where: {
           id: sess.sessionId,
           userId: inspectorId,
@@ -218,21 +257,21 @@ export class InspectionService {
           expiresAt: { gt: new Date() },
         },
       });
-      if (!session)
+
+      if (!validSession) {
         throw new BadRequestException(
-          `Invalid or expired upload session: ${sess.sessionId}`,
+          `Invalid or expired upload session: ${sess.sessionId}. Session must be COMPLETED and not expired.`,
         );
+      }
     }
 
-    // ── Compute health label & remaining life based on roof system type ───
-    // Safely access the threshold with fallback
+    // ── Compute health label & remaining life ─────────────────────────────
     let roofThresholds;
     if (healthThresholdConfig && healthThresholdConfig[roofSystemType]) {
       roofThresholds = healthThresholdConfig[roofSystemType];
     } else if (healthThresholdConfig && healthThresholdConfig['Multiple']) {
       roofThresholds = healthThresholdConfig['Multiple'];
     } else {
-      // Fallback default thresholds if config is missing
       roofThresholds = {
         good: {
           minScore: 70,
@@ -274,14 +313,36 @@ export class InspectionService {
       description: item.description ?? '',
     }));
 
-    // ── Transaction: create inspection, link embed fields & sessions ──────
-    const { inspection, savedMediaFiles } = await this.prisma.$transaction(
-      async (tx) => {
-        // 1. Create inspection with all calculated fields
-        const inspection = await tx.inspection.create({
+    // ── Transaction: Update draft to COMPLETE or create new inspection ──────
+    const { inspection } = await this.prisma.$transaction(async (tx) => {
+      let inspection;
+
+      if (existingDraft) {
+        // ── UPDATE existing draft to COMPLETE (preserves media files) ────────
+
+        // Remove requested media files
+        if (dto.removeMediaFileIds?.length) {
+          await tx.mediaFile.deleteMany({
+            where: {
+              id: { in: dto.removeMediaFileIds },
+              inspectionId: existingDraft.id,
+            },
+          });
+        }
+
+        // Remove old embed fields (they'll be replaced)
+        await tx.mediaFile.deleteMany({
+          where: {
+            inspectionId: existingDraft.id,
+            fileType: 'EMBED',
+          },
+        });
+
+        // Update the draft to COMPLETE
+        inspection = await tx.inspection.update({
+          where: { id: existingDraft.id },
           data: {
-            dashboardId,
-            inspectorId,
+            status: 'COMPLETE',
             headerData: dto.headerData as any,
             scores: categoryScores as any,
             repairItems: repairItems as any,
@@ -297,98 +358,129 @@ export class InspectionService {
               : new Date(),
           },
         });
-
-        const savedMediaFiles = [];
-
-        // 2. Embed fields (YouTube, 3D tours, etc.)
-        for (const [mediaFieldKey, embedUrl] of Object.entries(
-          dto.embedFields ?? {},
-        )) {
-          const slot = mediaSlots.find((s) => s.key === mediaFieldKey);
-          if (!slot || slot.type !== 'embed') continue;
-          const mf = await tx.mediaFile.create({
-            data: {
-              inspectionId: inspection.id,
-              fileName: mediaFieldKey,
-              fileType: 'EMBED',
-              url: String(embedUrl),
-              size: null,
-              mediaFieldKey,
-            },
-          });
-          savedMediaFiles.push(mf);
-        }
-
-        // 3. Convert upload sessions to MediaFile rows
-        for (const sess of dto.mediaSessions ?? []) {
-          const session = await tx.uploadSession.findUnique({
-            where: { id: sess.sessionId },
-          });
-          if (!session) continue;
-
-          const mf = await tx.mediaFile.create({
-            data: {
-              inspectionId: inspection.id,
-              fileName: session.fileName,
-              fileType: this._resolveFileType(session.mimeType),
-              url: session.key,
-              size: session.fileSize,
-              mediaFieldKey: sess.mediaFieldKey,
-            },
-          });
-          savedMediaFiles.push(mf);
-
-          await tx.uploadSession.update({
-            where: { id: sess.sessionId },
-            data: {
-              status: 'ASSIGNED',
-              inspectionId: inspection.id,
-              mediaFieldKey: sess.mediaFieldKey,
-            },
-          });
-        }
-
-        // 4. Mark schedule as COMPLETE
-        await tx.scheduledInspection.update({
-          where: { id: activeSchedule.id },
+      } else {
+        // ── CREATE new inspection as COMPLETE (no draft existed) ─────────────
+        inspection = await tx.inspection.create({
           data: {
+            dashboardId,
+            scheduledInspectionId,
+            inspectorId,
             status: 'COMPLETE',
-            inspectionId: inspection.id,
+            headerData: dto.headerData as any,
+            scores: categoryScores as any,
+            repairItems: repairItems as any,
+            nteValue: dto.nteValue ?? null,
+            additionalComments: dto.additionalComments ?? null,
+            overallScore: actualScore,
+            totalScore: totalPossibleScore,
+            overallScorePercentage: overallScorePercentage,
+            healthLabel,
+            remainingLife,
+            inspectedAt: dto.inspectedAt
+              ? new Date(dto.inspectedAt)
+              : new Date(),
           },
         });
+      }
 
-        // 5. Clear nextInspectionDate on property
-        await tx.property.update({
-          where: { id: dashboard.property.id },
-          data: { nextInspectionDate: null },
-        });
+      // ── Save embed fields ─────────────────────────────────────────────
+      for (const [mediaFieldKey, embedUrl] of Object.entries(
+        dto.embedFields ?? {},
+      )) {
+        const slot = mediaSlots.find((s) => s.key === mediaFieldKey);
+        if (!slot || slot.type !== 'embed') continue;
 
-        // 6. Create activity log
-        const inspector = await tx.user.findUnique({
-          where: { id: inspectorId },
-          select: { username: true, role: true },
-        });
-
-        await tx.activityLog.create({
+        await tx.mediaFile.create({
           data: {
-            category: 'PROPERTY_DASHBOARD_UPDATE',
-            actor_role: inspector?.role ?? null,
-            message: `${inspector?.username ?? 'Inspector'} submitted an inspection report for ${dashboard.property?.name ?? 'Unknown Property'}. Score: ${actualScore}/${totalPossibleScore} (${overallScorePercentage}%) - ${healthLabel}`,
+            inspectionId: inspection.id,
+            fileName: mediaFieldKey,
+            fileType: 'EMBED',
+            url: String(embedUrl),
+            size: null,
+            mediaFieldKey,
+          },
+        });
+      }
+
+      // ── Save new upload sessions (only new ones not already in draft) ──
+      // Get existing URLs from draft to avoid duplicates
+      const existingUrls = new Set(
+        existingDraft?.mediaFiles
+          .filter((mf) => mf.fileType !== 'EMBED')
+          .map((mf) => mf.url) ?? [],
+      );
+
+      for (const sess of dto.mediaSessions ?? []) {
+        const session = await tx.uploadSession.findUnique({
+          where: { id: sess.sessionId },
+        });
+        if (!session) continue;
+
+        // Skip if this file already exists in the draft
+        if (existingUrls.has(session.key)) {
+          continue;
+        }
+
+        await tx.mediaFile.create({
+          data: {
+            inspectionId: inspection.id,
+            fileName: session.fileName,
+            fileType: this._resolveFileType(session.mimeType),
+            url: session.key,
+            size: session.fileSize,
+            mediaFieldKey: sess.mediaFieldKey,
           },
         });
 
-        return { inspection, savedMediaFiles };
-      },
-    );
+        await tx.uploadSession.update({
+          where: { id: sess.sessionId },
+          data: {
+            status: 'ASSIGNED',
+            inspectionId: inspection.id,
+            mediaFieldKey: sess.mediaFieldKey,
+          },
+        });
+      }
 
-    // ── Send notifications (non-transactional) ─────────────────────────────
+      // ── Mark schedule as COMPLETE and link to inspection ──────────────
+      await tx.scheduledInspection.update({
+        where: { id: activeSchedule.id },
+        data: {
+          status: 'COMPLETE',
+          inspectionId: inspection.id,
+        },
+      });
+
+      // ── Clear nextInspectionDate on property ─────────────────────────
+      await tx.property.update({
+        where: { id: dashboard.property.id },
+        data: { nextInspectionDate: null },
+      });
+
+      // ── Create activity log ──────────────────────────────────────────
+      const inspector = await tx.user.findUnique({
+        where: { id: inspectorId },
+        select: { username: true, role: true },
+      });
+
+      await tx.activityLog.create({
+        data: {
+          category: 'PROPERTY_DASHBOARD_UPDATE',
+          actor_role: inspector?.role ?? null,
+          message: `${inspector?.username ?? 'Inspector'} submitted an inspection report for ${dashboard.property?.name ?? 'Unknown Property'}. Score: ${actualScore}/${totalPossibleScore} (${overallScorePercentage}%) - ${healthLabel}`,
+        },
+      });
+
+      return { inspection };
+    });
+
+    // ── Send notifications ─────────────────────────────────────────────
     const propertyName = dashboard.property?.name ?? 'Unknown Property';
     const inspector = await this.prisma.user.findUnique({
       where: { id: inspectorId },
       select: { username: true, role: true },
     });
 
-    // Notify admins
     const admins = await this.prisma.user.findMany({
       where: { role: 'ADMIN', status: 'ACTIVE', isDeleted: false },
       select: { id: true },
@@ -406,7 +498,6 @@ export class InspectionService {
       });
     }
 
-    // Notify property access users
     const accesses = await this.prisma.propertyAccess.findMany({
       where: {
         propertyId: dashboard.property?.id,
@@ -428,13 +519,19 @@ export class InspectionService {
       });
     }
 
-    // ── Return response with signed URLs for media files ───────────────────
+    // Fetch all media files for the completed inspection
+    const allMediaFiles = await this.prisma.mediaFile.findMany({
+      where: { inspectionId: inspection.id },
+    });
+
     return {
       success: true,
-      message: 'Inspection submitted successfully',
+      message: existingDraft
+        ? 'Inspection submitted successfully'
+        : 'Inspection submitted successfully',
       data: {
         ...inspection,
-        mediaFiles: savedMediaFiles.map((file) => ({
+        mediaFiles: allMediaFiles.map((file) => ({
           ...file,
           url:
             file.fileType === 'EMBED' ? file.url : this._getSignedUrl(file.url),
@@ -447,6 +544,322 @@ export class InspectionService {
           remainingLife,
           roofSystemType,
         },
+      },
+    };
+  }
+
+  // ── saveDraft ─────────────────────────────────────────────────────────────────
+  async saveDraft(
+    dashboardId: string,
+    scheduledInspectionId: string,
+    inspectorId: string,
+    inspectorRole: string,
+    dto: SaveDraftInspectionDto,
+  ) {
+    const { dashboard, criteria } =
+      await this._getCriteriaForDashboard(dashboardId);
+
+    // ── Access check ────────────────────────────────────────────────────────
+    await this._assertPropertyAccess(
+      dashboard.property.id,
+      inspectorId,
+      inspectorRole,
+    );
+
+    // ── Validate scheduled inspection ───────────────────────────────────────
+    const activeSchedule = await this.prisma.scheduledInspection.findUnique({
+      where: { id: scheduledInspectionId },
+    });
+
+    if (!activeSchedule)
+      throw new NotFoundException(
+        `Scheduled inspection "${scheduledInspectionId}" not found.`,
+      );
+    if (activeSchedule.dashboardId !== dashboardId)
+      throw new BadRequestException(
+        'Scheduled inspection does not belong to this dashboard.',
+      );
+    if (activeSchedule.assignedTo !== inspectorId)
+      throw new ForbiddenException('This inspection is not assigned to you.');
+    if (activeSchedule.status === 'COMPLETE')
+      throw new BadRequestException(
+        'This inspection is already completed and cannot be edited.',
+      );
+    if (activeSchedule.status === 'ASSIGNED')
+      throw new BadRequestException('Call /start endpoint first.');
+    if (activeSchedule.status === 'DUE')
+      throw new BadRequestException('Inspection overdue. Contact admin.');
+    if (activeSchedule.status !== 'IN_PROGRESS')
+      throw new BadRequestException('Invalid state for draft save.');
+
+    // ── Extract criteria configs ─────────────────────────────────────────────
+    const mediaSlots = criteria.mediaFields as unknown as MediaFieldSlot[];
+
+    // ── Validate media sessions ──────────────────────────────────────────────
+    const validSlotKeys = mediaSlots.map((s) => s.key);
+    for (const sess of dto.mediaSessions ?? []) {
+      if (!validSlotKeys.includes(sess.mediaFieldKey))
+        throw new BadRequestException(
+          `Invalid mediaFieldKey: ${sess.mediaFieldKey}`,
+        );
+
+      const session = await this.prisma.uploadSession.findFirst({
+        where: {
+          id: sess.sessionId,
+          userId: inspectorId,
+          status: 'COMPLETED',
+        },
+      });
+      if (!session)
+        throw new BadRequestException(
+          `Invalid or incomplete upload session: ${sess.sessionId}`,
+        );
+    }
+
+    // ── Build partial scores ─────────────────────────────────────────────────
+    const categoryScores: Record<string, { score: number; notes?: string }> =
+      {};
+    if (dto.scores) {
+      for (const [key, val] of Object.entries(dto.scores)) {
+        categoryScores[key] = {
+          score: val.score ?? 0,
+          notes: val.notes ?? '',
+        };
+      }
+    }
+
+    // ── Format repair items ──────────────────────────────────────────────────
+    const repairItems = (dto.repairItems ?? []).map((item, i) => ({
+      id: `repair_${Date.now()}_${i}`,
+      title: item.title,
+      status: item.status,
+      description: item.description ?? '',
+    }));
+
+    // Check for existing draft
+    const existingDraft = await this.prisma.inspection.findFirst({
+      where: {
+        scheduledInspectionId,
+        inspectorId,
+        status: 'DRAFT',
+      },
+    });
+
+    // ── Transaction: upsert draft inspection ─────────────────────────────────
+    const { inspection } = await this.prisma.$transaction(async (tx) => {
+      let inspection;
+
+      if (existingDraft) {
+        // ── UPDATE existing draft ──────────────────────────────────────────
+
+        // Remove media files the user wants to delete
+        if (dto.removeMediaFileIds?.length) {
+          await tx.mediaFile.deleteMany({
+            where: {
+              id: { in: dto.removeMediaFileIds },
+              inspectionId: existingDraft.id,
+            },
+          });
+        }
+
+        // CRITICAL FIX: Include scheduledInspectionId in update
+        inspection = await tx.inspection.update({
+          where: { id: existingDraft.id },
+          data: {
+            // IMPORTANT: Keep the scheduledInspectionId relation
+            scheduledInspectionId, // ← ADD THIS LINE
+            ...(dto.headerData && { headerData: dto.headerData as any }),
+            ...(dto.scores && { scores: categoryScores as any }),
+            ...(dto.repairItems && { repairItems: repairItems as any }),
+            ...(dto.nteValue !== undefined && { nteValue: dto.nteValue }),
+            ...(dto.additionalComments !== undefined && {
+              additionalComments: dto.additionalComments,
+            }),
+            ...(dto.inspectedAt && {
+              inspectedAt: new Date(dto.inspectedAt),
+            }),
+          },
+        });
+      } else {
+        // ── CREATE new draft ───────────────────────────────────────────────
+        inspection = await tx.inspection.create({
+          data: {
+            dashboardId,
+            scheduledInspectionId, // ← CRITICAL: Link to scheduled inspection
+            inspectorId,
+            status: 'DRAFT',
+            headerData: (dto.headerData ?? {}) as any,
+            scores: (Object.keys(categoryScores).length
+              ? categoryScores
+              : {}) as any,
+            repairItems: repairItems as any,
+            nteValue: dto.nteValue ?? null,
+            additionalComments: dto.additionalComments ?? null,
+            overallScore: 0,
+            totalScore: 0,
+            overallScorePercentage: 0,
+            healthLabel: null,
+            remainingLife: null,
+            inspectedAt: dto.inspectedAt
+              ? new Date(dto.inspectedAt)
+              : new Date(),
+          },
+        });
+      }
+
+      // ── Save embed fields ────────────────────────────────────────────────
+      // Remove old embeds for this inspection
+      await tx.mediaFile.deleteMany({
+        where: {
+          inspectionId: inspection.id,
+          fileType: 'EMBED',
+        },
+      });
+
+      // Save new embed fields
+      for (const [mediaFieldKey, embedUrl] of Object.entries(
+        dto.embedFields ?? {},
+      )) {
+        const slot = mediaSlots.find((s) => s.key === mediaFieldKey);
+        if (!slot || slot.type !== 'embed') continue;
+
+        await tx.mediaFile.create({
+          data: {
+            inspectionId: inspection.id,
+            fileName: mediaFieldKey,
+            fileType: 'EMBED',
+            url: String(embedUrl),
+            size: null,
+            mediaFieldKey,
+          },
+        });
+      }
+
+      // ── Save new upload sessions as MediaFiles ───────────────────────────
+      for (const sess of dto.mediaSessions ?? []) {
+        const session = await tx.uploadSession.findUnique({
+          where: { id: sess.sessionId },
+        });
+        if (!session) continue;
+
+        // Prevent duplicate
+        const alreadyLinked = await tx.mediaFile.findFirst({
+          where: { inspectionId: inspection.id, url: session.key },
+        });
+        if (!alreadyLinked) {
+          await tx.mediaFile.create({
+            data: {
+              inspectionId: inspection.id,
+              fileName: session.fileName,
+              fileType: this._resolveFileType(session.mimeType),
+              url: session.key,
+              size: session.fileSize,
+              mediaFieldKey: sess.mediaFieldKey,
+            },
+          });
+        }
+
+        // Mark session as ASSIGNED
+        await tx.uploadSession.update({
+          where: { id: sess.sessionId },
+          data: {
+            status: 'ASSIGNED',
+            inspectionId: inspection.id,
+            mediaFieldKey: sess.mediaFieldKey,
+            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          },
+        });
+      }
+
+      return { inspection };
+    });
+
+    // Fetch all media files for this draft
+    const allMediaFiles = await this.prisma.mediaFile.findMany({
+      where: { inspectionId: inspection.id },
+    });
+
+    return {
+      success: true,
+      message: existingDraft
+        ? 'Draft updated successfully.'
+        : 'Draft saved successfully.',
+      data: {
+        ...inspection,
+        mediaFiles: allMediaFiles.map((file) => ({
+          ...file,
+          url:
+            file.fileType === 'EMBED' ? file.url : this._getSignedUrl(file.url),
+        })),
+      },
+    };
+  }
+
+  // ── getDraft ──────────────────────────────────────────────────────────────────
+  async getDraft(
+    dashboardId: string,
+    scheduledInspectionId: string,
+    inspectorId: string,
+    inspectorRole: string,
+  ) {
+    const { dashboard } = await this._getCriteriaForDashboard(dashboardId);
+
+    // ── Access check ────────────────────────────────────────────────────────
+    await this._assertPropertyAccess(
+      dashboard.property.id,
+      inspectorId,
+      inspectorRole,
+    );
+
+    // ── Validate scheduled inspection ownership ──────────────────────────────
+    const activeSchedule = await this.prisma.scheduledInspection.findUnique({
+      where: { id: scheduledInspectionId },
+    });
+
+    if (!activeSchedule)
+      throw new NotFoundException(
+        `Scheduled inspection "${scheduledInspectionId}" not found.`,
+      );
+    if (activeSchedule.dashboardId !== dashboardId)
+      throw new BadRequestException(
+        'Scheduled inspection does not belong to this dashboard.',
+      );
+
+    // ── Only the assigned inspector can see the draft ────────────────────────
+    if (activeSchedule.assignedTo !== inspectorId)
+      throw new ForbiddenException('You do not have access to this draft.');
+
+    // ── Find draft ───────────────────────────────────────────────────────────
+    const draft = await this.prisma.inspection.findFirst({
+      where: {
+        scheduledInspectionId,
+        inspectorId,
+        status: 'DRAFT',
+      },
+      include: {
+        mediaFiles: true,
+      },
+    });
+
+    // No draft yet — return null, frontend shows empty form
+    if (!draft) {
+      return {
+        success: true,
+        message: 'No draft found. Start filling in the inspection.',
+        data: null,
+      };
+    }
+
+    return {
+      success: true,
+      message: 'Draft retrieved successfully.',
+      data: {
+        ...draft,
+        mediaFiles: draft.mediaFiles.map((file) => ({
+          ...file,
+          url:
+            file.fileType === 'EMBED' ? file.url : this._getSignedUrl(file.url),
+        })),
       },
     };
   }
@@ -476,13 +889,6 @@ export class InspectionService {
 
     if (!inspection)
       throw new NotFoundException(`Inspection "${inspectionId}" not found.`);
-
-    // ── Only allow editing COMPLETE inspections (not yet published) ────────
-    if (inspection.scheduledInspection?.status !== 'COMPLETE') {
-      throw new BadRequestException(
-        `Only COMPLETE inspections can be edited. Current status: ${inspection.scheduledInspection?.status ?? 'unknown'}.`,
-      );
-    }
 
     const criteria = inspection.dashboard.property?.activeTemplate?.criteria;
 
@@ -856,7 +1262,150 @@ export class InspectionService {
     };
   }
 
-  async findOne(inspectionId: string, userId: string, role: string) {
+  // async findOne(inspectionId: string, userId: string, role: string) {
+  //   const inspection = await this.prisma.inspection.findUnique({
+  //     where: { id: inspectionId },
+  //     include: {
+  //       inspector: {
+  //         select: { id: true, username: true, email: true, avatar: true },
+  //       },
+  //       mediaFiles: true,
+  //       dashboard: { include: { property: { select: { id: true } } } },
+  //     },
+  //   });
+  //   if (!inspection) throw new NotFoundException('Inspection not found.');
+
+  //   // ── Access check ──────────────────────────────────────────────────────
+  //   await this._assertPropertyAccess(
+  //     inspection.dashboard.property.id,
+  //     userId,
+  //     role,
+  //   );
+
+  //   return {
+  //     success: true,
+  //     message: 'Inspection retrieved',
+  //     data: {
+  //       ...inspection,
+  //       mediaFiles: inspection.mediaFiles.map((file) => ({
+  //         ...file,
+  //         url:
+  //           file.fileType === 'EMBED' ? file.url : this._resolveUrl(file.url),
+  //       })),
+  //     },
+  //   };
+  // }
+
+  async findOne(
+    userId: string,
+    role: string,
+    inspectionId?: string,
+    scheduledInspectionId?: string,
+  ) {
+    // At least one must be provided
+    if (!inspectionId && !scheduledInspectionId)
+      throw new BadRequestException(
+        'Provide either inspectionId or scheduledInspectionId.',
+      );
+
+    // ── PATH A: scheduledInspectionId provided ────────────────────────────
+    if (scheduledInspectionId) {
+      const scheduled = await this.prisma.scheduledInspection.findUnique({
+        where: { id: scheduledInspectionId },
+        include: {
+          dashboard: {
+            include: { property: { select: { id: true } } },
+          },
+        },
+      });
+
+      if (!scheduled)
+        throw new NotFoundException(
+          `Scheduled inspection "${scheduledInspectionId}" not found.`,
+        );
+
+      // Access check
+      await this._assertPropertyAccess(
+        scheduled.dashboard.property.id,
+        userId,
+        role,
+      );
+
+      // Assigned inspector → check for their draft first
+      if (role === 'OPERATIONAL' && scheduled.assignedTo === userId) {
+        const draft = await this.prisma.inspection.findFirst({
+          where: {
+            scheduledInspectionId,
+            inspectorId: userId,
+            status: 'DRAFT',
+          },
+          include: {
+            inspector: {
+              select: { id: true, username: true, email: true, avatar: true },
+            },
+            mediaFiles: true,
+          },
+        });
+
+        if (draft) {
+          return {
+            success: true,
+            message: 'Draft inspection retrieved.',
+            data: {
+              ...draft,
+              isDraft: true,
+              mediaFiles: draft.mediaFiles.map((file) => ({
+                ...file,
+                url:
+                  file.fileType === 'EMBED'
+                    ? file.url
+                    : this._resolveUrl(file.url),
+              })),
+            },
+          };
+        }
+      }
+
+      // No draft (or not assigned inspector) → fall to completed inspection
+      const resolvedInspectionId = scheduled.inspectionId ?? inspectionId;
+
+      if (!resolvedInspectionId) {
+        return {
+          success: true,
+          message: 'No inspection data found yet.',
+          data: null,
+        };
+      }
+
+      // Load completed inspection
+      const inspection = await this.prisma.inspection.findUnique({
+        where: { id: resolvedInspectionId },
+        include: {
+          inspector: {
+            select: { id: true, username: true, email: true, avatar: true },
+          },
+          mediaFiles: true,
+        },
+      });
+
+      if (!inspection) throw new NotFoundException('Inspection not found.');
+
+      return {
+        success: true,
+        message: 'Inspection retrieved.',
+        data: {
+          ...inspection,
+          isDraft: false,
+          mediaFiles: inspection.mediaFiles.map((file) => ({
+            ...file,
+            url:
+              file.fileType === 'EMBED' ? file.url : this._resolveUrl(file.url),
+          })),
+        },
+      };
+    }
+
+    // ── PATH B: only inspectionId provided ───────────────────────────────
     const inspection = await this.prisma.inspection.findUnique({
       where: { id: inspectionId },
       include: {
@@ -867,9 +1416,9 @@ export class InspectionService {
         dashboard: { include: { property: { select: { id: true } } } },
       },
     });
+
     if (!inspection) throw new NotFoundException('Inspection not found.');
 
-    // ── Access check ──────────────────────────────────────────────────────
     await this._assertPropertyAccess(
       inspection.dashboard.property.id,
       userId,
@@ -878,9 +1427,10 @@ export class InspectionService {
 
     return {
       success: true,
-      message: 'Inspection retrieved',
+      message: 'Inspection retrieved.',
       data: {
         ...inspection,
+        isDraft: false,
         mediaFiles: inspection.mediaFiles.map((file) => ({
           ...file,
           url:
@@ -1103,7 +1653,10 @@ export class InspectionService {
           assignee: {
             select: { id: true, username: true, email: true, avatar: true },
           },
-          creator: { select: { id: true, username: true } },
+          createdByUser: {
+            // ← Use createdByUser, not creator
+            select: { id: true, username: true },
+          },
         },
       }),
       this.prisma.scheduledInspection.count({ where }),
@@ -1125,7 +1678,7 @@ export class InspectionService {
         address: s.dashboard.property.address,
         nextInspectionDate: s.dashboard.property.nextInspectionDate,
         assignee: s.assignee,
-        createdBy: s.creator,
+        createdBy: s.createdByUser,
         createdAt: s.createdAt,
       })),
       meta: {
@@ -1179,7 +1732,7 @@ export class InspectionService {
           select: { id: true, username: true, email: true, avatar: true },
         },
 
-        creator: {
+        createdByUser: {
           select: { id: true, username: true },
         },
 
@@ -1254,7 +1807,7 @@ export class InspectionService {
         dashboardId: scheduled.dashboardId,
         createdAt: scheduled.createdAt,
         assignee: scheduled.assignee,
-        createdBy: scheduled.creator,
+        createdBy: scheduled.createdByUser,
 
         property: scheduled.dashboard.property,
 
@@ -1537,7 +2090,7 @@ export class InspectionService {
     const isDevelopment = appConfig().app.node_env === 'development';
 
     if (isDevelopment) {
-      // Development: use local MinIO IP
+      // Development: use local  MinIO IP
       const minioEndpoint =
         appConfig().fileSystems.s3.endpoint || 'http://192.168.7.68:9005';
       const bucket = appConfig().fileSystems.s3.bucket || 'uploads';
