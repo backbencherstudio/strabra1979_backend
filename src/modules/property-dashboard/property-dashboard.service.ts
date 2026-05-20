@@ -528,7 +528,11 @@ export class PropertyDashboardService {
             activeTemplate: true,
           },
         },
+        // FIX: Only get COMPLETED inspections for public view
         inspections: {
+          where: {
+            status: 'COMPLETE', // ← Add this filter
+          },
           orderBy: { createdAt: 'desc' },
           take: 1,
           include: { mediaFiles: true },
@@ -546,6 +550,38 @@ export class PropertyDashboardService {
 
     const accessExpiresAt = dashboard.property.accesses[0]?.expiresAt ?? null;
 
+    // Also check if the user is the assigned inspector for any scheduled inspection
+    // If they are, they should see their draft separately
+    let draftInspection = null;
+
+    const userRole = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+
+    if (userRole?.role === 'OPERATIONAL') {
+      // Check if this user has an active scheduled inspection for this dashboard
+      const scheduled = await this.prisma.scheduledInspection.findFirst({
+        where: {
+          dashboardId,
+          assignedTo: userId,
+          status: { in: ['ASSIGNED', 'IN_PROGRESS', 'DUE'] },
+        },
+        select: { id: true },
+      });
+
+      if (scheduled) {
+        draftInspection = await this.prisma.inspection.findFirst({
+          where: {
+            scheduledInspectionId: scheduled.id,
+            inspectorId: userId,
+            status: 'DRAFT',
+          },
+          include: { mediaFiles: true },
+        });
+      }
+    }
+
     return {
       success: true,
       message: 'Dashboard retrieved successfully',
@@ -554,8 +590,22 @@ export class PropertyDashboardService {
         property: {
           accessExpiresAt,
           ...dashboard.property,
-          accesses: undefined, // strip the raw accesses array from the response
+          accesses: undefined,
         },
+        // Return draft separately if it exists (for assigned inspector only)
+        draftInspection: draftInspection
+          ? {
+              ...draftInspection,
+              mediaFiles: draftInspection.mediaFiles.map((file) => ({
+                ...file,
+                url:
+                  file.fileType === 'EMBED'
+                    ? file.url
+                    : this._resolveUrl(file.url),
+              })),
+            }
+          : null,
+        // Only return completed inspections here
         inspections: dashboard.inspections.map((inspection) => ({
           ...inspection,
           mediaFiles: inspection.mediaFiles.map((file) => ({

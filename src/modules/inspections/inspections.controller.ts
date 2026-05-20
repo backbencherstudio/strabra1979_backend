@@ -9,6 +9,7 @@ import {
   Req,
   Query,
   Delete,
+  Put,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -22,7 +23,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { FilesInterceptor } from '@nestjs/platform-express';
-import { SubmitInspectionDto, UpdateInspectionDto } from './dto/inspection.dto';
+import { SaveDraftInspectionDto, SubmitInspectionDto, UpdateInspectionDto } from './dto/inspection.dto';
 import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/common/guard/role/roles.guard';
 import { Roles } from 'src/common/guard/role/roles.decorator';
@@ -106,6 +107,80 @@ export class InspectionController {
     );
   }
 
+  // ── Save / Update Draft ───────────────────────────────────────────────────────
+  @Put('property/:dashboardId/draft/:scheduledInspectionId')
+  @Roles(Role.OPERATIONAL)
+  @ApiOperation({
+    summary: 'Save or update an inspection draft',
+    description:
+      'Creates or updates a DRAFT inspection for the given scheduled inspection.\n\n' +
+      '- No required field validation — save partial data freely.\n\n' +
+      '- Only the assigned inspector can save/update their own draft.\n\n' +
+      '- Pass new upload session IDs in `mediaSessions` to attach files.\n\n' +
+      '- Pass `removeMediaFileIds` to detach previously saved files.\n\n' +
+      '- Call the **complete** endpoint when ready to finalize.',
+  })
+  @ApiParam({
+    name: 'dashboardId',
+    description: 'CUID of the PropertyDashboard',
+  })
+  @ApiParam({
+    name: 'scheduledInspectionId',
+    description: 'CUID of the ScheduledInspection (must be IN_PROGRESS)',
+  })
+  @ApiBody({
+    type: SaveDraftInspectionDto,
+    description: 'Partial inspection data. All fields are optional.',
+  })
+  @ApiOkResponse({ description: 'Draft saved successfully.' })
+  saveDraft(
+    @Param('dashboardId') dashboardId: string,
+    @Param('scheduledInspectionId') scheduledInspectionId: string,
+    @Body() dto: SaveDraftInspectionDto,
+    @Req() req: Request,
+  ) {
+    return this.service.saveDraft(
+      dashboardId,
+      scheduledInspectionId,
+      req.user.userId,
+      req.user.role,
+      dto,
+    );
+  }
+
+  // ── Get Draft ─────────────────────────────────────────────────────────────────
+  @Get('property/:dashboardId/draft/:scheduledInspectionId')
+  @Roles(Role.OPERATIONAL)
+  @ApiOperation({
+    summary: 'Get saved draft for a scheduled inspection',
+    description:
+      'Returns the DRAFT inspection for the given scheduled inspection.\n\n' +
+      '- Only the assigned inspector can access their own draft.\n\n' +
+      '- Returns `null` in `data` if no draft exists yet.\n\n' +
+      '- Media files are returned with signed URLs.',
+  })
+  @ApiParam({
+    name: 'dashboardId',
+    description: 'CUID of the PropertyDashboard',
+  })
+  @ApiParam({
+    name: 'scheduledInspectionId',
+    description: 'CUID of the ScheduledInspection',
+  })
+  @ApiOkResponse({ description: 'Draft returned successfully.' })
+  getDraft(
+    @Param('dashboardId') dashboardId: string,
+    @Param('scheduledInspectionId') scheduledInspectionId: string,
+    @Req() req: Request,
+  ) {
+    return this.service.getDraft(
+      dashboardId,
+      scheduledInspectionId,
+      req.user.userId,
+      req.user.role,
+    );
+  }
+
   @Patch(':inspectionId')
   @Roles(Role.ADMIN, Role.OPERATIONAL)
   @ApiOperation({
@@ -116,7 +191,7 @@ export class InspectionController {
   @ApiOkResponse({ description: 'Inspection updated successfully.' })
   updateInspection(
     @Param('inspectionId') inspectionId: string,
-    @Body() dto: UpdateInspectionDto, 
+    @Body() dto: UpdateInspectionDto,
     @Req() req: Request,
   ) {
     return this.service.updateInspection(inspectionId, req.user.userId, dto);
@@ -168,15 +243,50 @@ export class InspectionController {
     );
   }
 
-  @Get(':inspectionId')
+  // @Get(':inspectionId')
+  // @Roles(Role.ADMIN, Role.OPERATIONAL, Role.PROPERTY_MANAGER)
+  // @ApiOperation({
+  //   summary: 'Get a single inspection with all data and media files',
+  // })
+  // @ApiParam({ name: 'inspectionId', description: 'CUID of the Inspection' })
+  // @ApiOkResponse({ description: 'Full inspection record returned.' })
+  // findOne(@Param('inspectionId') inspectionId: string, @Req() req: Request) {
+  //   return this.service.findOne(inspectionId, req.user.userId, req.user.role);
+  // }
+
+  @Get()
   @Roles(Role.ADMIN, Role.OPERATIONAL, Role.PROPERTY_MANAGER)
   @ApiOperation({
-    summary: 'Get a single inspection with all data and media files',
+    summary: 'Get inspection data by inspection ID or scheduled inspection ID',
+    description:
+      'Pass either `inspectionId` or `scheduledInspectionId` as query params.\n\n' +
+      '- If `scheduledInspectionId` provided → checks draft first for assigned inspector.\n\n' +
+      '- If only `inspectionId` provided → returns completed inspection directly.\n\n' +
+      '- At least one must be provided.',
   })
-  @ApiParam({ name: 'inspectionId', description: 'CUID of the Inspection' })
-  @ApiOkResponse({ description: 'Full inspection record returned.' })
-  findOne(@Param('inspectionId') inspectionId: string, @Req() req: Request) {
-    return this.service.findOne(inspectionId, req.user.userId, req.user.role);
+  @ApiQuery({
+    name: 'inspectionId',
+    required: false,
+    description: 'CUID of the completed Inspection',
+  })
+  @ApiQuery({
+    name: 'scheduledInspectionId',
+    required: false,
+    description:
+      'CUID of the ScheduledInspection — checks draft first for assigned inspector',
+  })
+  @ApiOkResponse({ description: 'Inspection data returned.' })
+  findOne(
+    @Query('inspectionId') inspectionId: string | undefined,
+    @Query('scheduledInspectionId') scheduledInspectionId: string | undefined,
+    @Req() req: Request,
+  ) {
+    return this.service.findOne(
+      req.user.userId,
+      req.user.role,
+      inspectionId,
+      scheduledInspectionId,
+    );
   }
 
   // ═════════════════════════════════════════════════════════════════════════
