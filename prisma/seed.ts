@@ -141,16 +141,16 @@ export const INSPECTION_CRITERIA_SEED = {
     {
       key: 'droneAerial',
       label: 'Drone Aerial Overview',
-      placeholder: 'Upload your file.',
-      type: 'file',
+      placeholder: 'Paste your Drone Aerial iframe code here',
+      type: 'embed',
       isSystem: true,
       order: 2,
-      accept: ['image/*'],
+      accept: null,
     },
     {
       key: 'tour3d',
       label: '3D Tours',
-      placeholder: 'Paste Source URL / iframe Code',
+      placeholder: 'Paste 3D Tour iframe Code here',
       type: 'embed',
       isSystem: true,
       order: 3,
@@ -256,7 +256,7 @@ export const DASHBOARD_TEMPLATE_SEED = {
       type: 'drone_aerial',
       label: 'Drone Aerial Overview',
       config: {
-        embedType: 'url', // renders MediaFile with mediaFieldKey="droneAerial"
+        embedType: 'iframe',
         placeholder: 'No Drone Aerial Overview available for this inspection.',
       },
     },

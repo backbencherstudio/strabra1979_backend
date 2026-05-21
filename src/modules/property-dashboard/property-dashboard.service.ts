@@ -775,7 +775,7 @@ export class PropertyDashboardService {
     };
 
     // Email to assignee (operational)
-    this.mailService.sendInspectionAssigned({
+    await this.mailService.sendInspectionAssigned({
       email: assignee.email,
       username: assignee.username ?? assignee.email,
       ...emailPayload,
@@ -789,7 +789,7 @@ export class PropertyDashboardService {
       });
 
       if (pm?.email) {
-        this.mailService.sendInspectionAssigned({
+        await this.mailService.sendInspectionAssigned({
           email: pm.email,
           username: pm.username ?? pm.email,
           ...emailPayload,
@@ -863,7 +863,7 @@ export class PropertyDashboardService {
 
         // Notify previous PM by email
         if (previousPm?.email) {
-          this.mailService.sendDashboardUnassigned({
+          await this.mailService.sendDashboardUnassigned({
             email: previousPm.email,
             username: previousPm.username ?? previousPm.email,
             propertyName: currentProperty.name,
@@ -909,7 +909,7 @@ export class PropertyDashboardService {
       });
 
       // ── Email new PM ─────────────────────────────────────────────────
-      this.mailService.sendDashboardAssigned({
+      await this.mailService.sendDashboardAssigned({
         email: user.email,
         username: user.username ?? user.email,
         assignedBy: admin?.username ?? 'Admin',

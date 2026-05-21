@@ -68,7 +68,6 @@ export class MailProcessor extends WorkerHost {
 
         case 'sendWelcomeUser':
         case 'sendWelcomeAdminCreated':
-        case 'sendAccountDeactivated':
           this.logger.log('Sending user notification email');
           await this.mailerService.sendMail({
             to: job.data.to,
@@ -88,6 +87,45 @@ export class MailProcessor extends WorkerHost {
           break;
 
         case 'sendInspectionAssigned':
+          await this.mailerService.sendMail({
+            to: job.data.to,
+            subject: job.data.subject,
+            template: job.data.template,
+            context: job.data.context,
+          });
+          break;
+
+        case 'sendAccountActivated':
+          this.logger.log('Sending account activated email');
+          await this.mailerService.sendMail({
+            to: job.data.to,
+            subject: job.data.subject,
+            template: job.data.template,
+            context: job.data.context,
+          });
+          break;
+
+        case 'sendAccountDeactivated':
+          this.logger.log('Sending account deactivated email');
+          await this.mailerService.sendMail({
+            to: job.data.to,
+            subject: job.data.subject,
+            template: job.data.template,
+            context: job.data.context,
+          });
+          break;
+
+        case 'sendAccountDeleted':
+          this.logger.log('Sending account deleted email');
+          await this.mailerService.sendMail({
+            to: job.data.to,
+            subject: job.data.subject,
+            template: job.data.template,
+            context: job.data.context,
+          });
+          break;
+        case 'sendAccessRevoked':
+          this.logger.log(`Sending access revoked email to ${job.data.to}`);
           await this.mailerService.sendMail({
             to: job.data.to,
             subject: job.data.subject,

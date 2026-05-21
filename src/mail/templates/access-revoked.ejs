@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Access Revoked</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #f5f5f5;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    .wrap {
+      max-width: 500px;
+      margin: 40px auto;
+      padding: 0 16px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 10px;
+      border: 1px solid #e5e7eb;
+      overflow: hidden;
+    }
+    .top {
+      background: #dc2626;
+      padding: 28px 32px;
+    }
+    .top .brand {
+      font-size: 13px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.4);
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+    }
+    .top h1 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #fff;
+      margin: 10px 0 0;
+    }
+    .body {
+      padding: 28px 32px;
+    }
+    .body p {
+      font-size: 14px;
+      color: #6b7280;
+      line-height: 1.7;
+      margin: 0 0 16px;
+    }
+    .body p strong {
+      color: #111827;
+    }
+    .property-box {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin: 20px 0;
+    }
+    .property-box .tag {
+      font-size: 11px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 4px;
+    }
+    .property-box .name {
+      font-size: 16px;
+      font-weight: 700;
+      color: #111827;
+    }
+    .property-box .address {
+      font-size: 13px;
+      color: #9ca3af;
+      margin-top: 3px;
+    }
+    .info-box {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      padding: 14px 18px;
+      font-size: 13px;
+      color: #991b1b;
+      line-height: 1.6;
+      margin: 20px 0;
+    }
+    .reason-box {
+      background: #fffbeb;
+      border-left: 4px solid #f59e0b;
+      padding: 12px 16px;
+      margin: 16px 0;
+      font-size: 13px;
+      color: #92400e;
+    }
+    .footer {
+      border-top: 1px solid #f3f4f6;
+      padding: 18px 32px;
+    }
+    .footer p {
+      font-size: 12px;
+      color: #d1d5db;
+      margin: 0;
+      line-height: 1.6;
+    }
+    .contact-link {
+      color: #dc2626;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="top">
+        <div class="brand"><%= platformName %></div>
+        <h1>Property Access Revoked</h1>
+      </div>
+      <div class="body">
+        <p>Hi <strong><%= username %></strong>,</p>
+        
+        <p>Your access to the following property dashboard has been revoked by <strong><%= revokedBy %></strong>.</p>
+        
+        <div class="property-box">
+          <div class="tag">Property</div>
+          <div class="name"><%= propertyName %></div>
+          <% if (propertyAddress) { %>
+            <div class="address"><%= propertyAddress %></div>
+          <% } %>
+        </div>
+        
+        <% if (reason) { %>
+          <div class="reason-box">
+            <strong>Reason provided:</strong><br/>
+            <%= reason %>
+          </div>
+        <% } %>
+        
+        <div class="info-box">
+          You can no longer view or manage this property dashboard. 
+          If you believe this was a mistake or need access reinstated, 
+          please contact your administrator.
+        </div>
+        
+        <p style="margin-top: 20px; font-size: 13px; color: #6b7280;">
+          If you have questions about this change, please reply to this email 
+          or contact your organization's administrator.
+        </p>
+      </div>
+      <div class="footer">
+        <p>
+          &copy; <%= new Date().getFullYear() %> <%= platformName %>.<br/>
+          This is an automated notification about property access changes.
+        </p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

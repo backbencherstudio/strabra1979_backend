@@ -207,6 +207,11 @@ export class UserManagementService {
       throw new BadRequestException('You cannot change your own status');
     }
 
+    const platformName = appConfig().app.name ?? 'Platform';
+    const adminName =
+      `${currentUser.first_name} ${currentUser.last_name}`.trim() ||
+      currentUser.email;
+
     // Build update payload based on status
     const updateData: any = { status: dto.status };
 
@@ -215,7 +220,6 @@ export class UserManagementService {
       updateData.approved_by = currentUser.userId;
       updateData.access_revoked_at = null;
       updateData.access_revoked_by = null;
-      updateData.isDeleted = false;
       updateData.deleted_at = null;
       updateData.deletedReason = null;
     }
@@ -223,15 +227,12 @@ export class UserManagementService {
     if (dto.status === UserStatus.DEACTIVATED) {
       updateData.access_revoked_at = new Date();
       updateData.access_revoked_by = currentUser.userId;
-      updateData.deletedReason = null;
     }
 
     if (dto.status === UserStatus.DELETED) {
-      updateData.isDeleted = true;
       updateData.deleted_at = new Date();
       updateData.access_revoked_at = new Date();
       updateData.access_revoked_by = currentUser.userId;
-      updateData.deletedReason = 'CONTACT_ADMIN';
     }
 
     const updated = await this.prisma.user.update({
@@ -241,6 +242,8 @@ export class UserManagementService {
         id: true,
         email: true,
         username: true,
+        first_name: true,
+        last_name: true,
         role: true,
         status: true,
         approved_at: true,
@@ -249,17 +252,40 @@ export class UserManagementService {
       },
     });
 
-    const platformName = appConfig().app.name ?? 'Platform';
+    // Send email based on status change
+    const username =
+      user.username ||
+      `${user.first_name} ${user.last_name}`.trim() ||
+      user.email;
 
-    if (
-      dto.status === UserStatus.DEACTIVATED ||
-      dto.status === UserStatus.DELETED
-    ) {
-      await this.mailService.sendAccountDeactivated({
-        email: user.email,
-        username: user.username ?? user.email,
-        platformName,
-      });
+    switch (dto.status) {
+      case UserStatus.ACTIVE:
+        await this.mailService.sendAccountActivated({
+          email: user.email,
+          username: username,
+          approvedBy: adminName,
+          platformName,
+          loginUrl: `${appConfig().app.client_app_url}/login`,
+        });
+        break;
+
+      case UserStatus.DEACTIVATED:
+        await this.mailService.sendAccountDeactivated({
+          email: user.email,
+          username: username,
+          deactivatedBy: adminName,
+          platformName,
+        });
+        break;
+
+      case UserStatus.DELETED:
+          await this.mailService.sendAccountDeleted({
+          email: user.email,
+          username: username,
+          deletedBy: adminName,
+          platformName,
+        });
+        break;
     }
 
     return {
