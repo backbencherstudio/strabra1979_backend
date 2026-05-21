@@ -425,7 +425,7 @@ export class AuthService {
         });
 
         // Don't await — fire and forget so mail failure doesn't leak user existence
-        this.mailService
+        await this.mailService
           .sendOtpCodeToEmail({ email: user.email, name: user.username, otp })
           .catch((err) => {
             // Log internally but never surface to caller

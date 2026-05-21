@@ -443,14 +443,21 @@ export class PropertyAccessService {
 
     const signupLink = `${appConfig().app.client_app_url}/signup?invite=${token}&email=${encodeURIComponent(inviteEmail)}`;
 
-    await this.mailService.sendDashboardInvitation({
-      email: inviteEmail,
-      inviterName: granterName,
-      propertyName: property.name,
-      propertyAddress: property.address,
-      signupLink,
-      platformName,
-    });
+    await this.mailService
+      .sendDashboardInvitation({
+        email: inviteEmail,
+        inviterName: granterName,
+        propertyName: property.name,
+        propertyAddress: property.address,
+        signupLink,
+        platformName,
+      })
+      .catch((error) => {
+        console.error(
+          `Failed to send dashboard invitation to ${inviteEmail}:`,
+          error,
+        );
+      });
 
     await this.prisma.activityLog.create({
       data: {
@@ -479,15 +486,35 @@ export class PropertyAccessService {
     const { propertyId, property } =
       await this._assertDashboardExists(dashboardId);
 
+    // Get revoker details
+    const revoker = await this.prisma.user.findUnique({
+      where: { id: revokerId },
+      select: {
+        first_name: true,
+        last_name: true,
+        email: true,
+        username: true,
+      },
+    });
+
     const targetUser = await this.prisma.user.findUnique({
       where: { id: targetUserId },
-      select: { username: true, role: true },
+      select: {
+        id: true,
+        username: true,
+        role: true,
+        email: true,
+        first_name: true,
+        last_name: true,
+      },
     });
+
     if (!targetUser) throw new NotFoundException('User not found.');
 
     const access = await this.prisma.propertyAccess.findUnique({
       where: { propertyId_userId: { propertyId, userId: targetUserId } },
     });
+
     if (!access || access.revokedAt)
       throw new NotFoundException(
         'Active access record not found for this user.',
@@ -502,8 +529,28 @@ export class PropertyAccessService {
       data: {
         category: ActivityCategory.USER_ACCESS,
         actor_role: targetUser.role,
-        message: `${targetUser.username} access to ${property.name} dashboard was revoked`,
+        message: `${targetUser.username} access to ${property.name} dashboard was revoked by ${revoker?.username || revokerId}`,
       },
+    });
+
+    // Send email notification to the user whose access was revoked
+    const platformName = appConfig().app.name ?? 'Platform';
+    const revokerName = revoker
+      ? `${revoker.first_name} ${revoker.last_name}`.trim()
+      : revoker?.username || 'Administrator';
+    const userName =
+      targetUser.username ||
+      `${targetUser.first_name} ${targetUser.last_name}`.trim() ||
+      targetUser.email;
+
+    await this.mailService.sendAccessRevoked({
+      email: targetUser.email,
+      username: userName,
+      propertyName: property.name,
+      propertyAddress: property.address,
+      revokedBy: revokerName,
+      platformName,
+      reason: dto.reason,
     });
 
     return { message: 'Access revoked.' };

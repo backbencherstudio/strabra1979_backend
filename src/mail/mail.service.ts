@@ -15,7 +15,6 @@ export class MailService {
     try {
       const from = `${process.env.APP_NAME} <${appConfig().mail.from}>`;
       const subject = `${user.fname} is inviting you to ${appConfig().app.name}`;
-
       // add to queue
       await this.queue.add('sendMemberInvitation', {
         to: member.email,
@@ -137,15 +136,45 @@ export class MailService {
     });
   }
 
+  async sendAccountActivated(params: {
+    email: string;
+    username: string;
+    approvedBy: string;
+    platformName: string;
+    loginUrl: string;
+  }) {
+    await this.queue.add('sendAccountActivated', {
+      to: params.email,
+      subject: `Welcome to ${params.platformName} - Your account has been activated`,
+      template: 'account-activated',
+      context: { ...params },
+    });
+  }
+
   async sendAccountDeactivated(params: {
     email: string;
     username: string;
+    deactivatedBy: string;
     platformName: string;
   }) {
     await this.queue.add('sendAccountDeactivated', {
       to: params.email,
       subject: `Your ${params.platformName} account has been deactivated`,
       template: 'account-deactivated',
+      context: { ...params },
+    });
+  }
+
+  async sendAccountDeleted(params: {
+    email: string;
+    username: string;
+    deletedBy: string;
+    platformName: string;
+  }) {
+    await this.queue.add('sendAccountDeleted', {
+      to: params.email,
+      subject: `Your ${params.platformName} account has been deleted`,
+      template: 'account-deleted',
       context: { ...params },
     });
   }
@@ -163,6 +192,23 @@ export class MailService {
       to: params.email,
       subject: `You've been assigned to ${params.propertyName}`,
       template: 'dashboard-assigned',
+      context: { ...params },
+    });
+  }
+
+  async sendAccessRevoked(params: {
+    email: string;
+    username: string;
+    propertyName: string;
+    propertyAddress?: string;
+    revokedBy: string;
+    platformName: string;
+    reason?: string;
+  }) {
+    await this.queue.add('sendAccessRevoked', {
+      to: params.email,
+      subject: `Access revoked: ${params.propertyName}`,
+      template: 'access-revoked',
       context: { ...params },
     });
   }
