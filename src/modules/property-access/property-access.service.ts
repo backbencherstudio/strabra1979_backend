@@ -535,20 +535,13 @@ export class PropertyAccessService {
 
     // Send email notification to the user whose access was revoked
     const platformName = appConfig().app.name ?? 'Platform';
-    const revokerName = revoker
-      ? `${revoker.first_name} ${revoker.last_name}`.trim()
-      : revoker?.username || 'Administrator';
-    const userName =
-      targetUser.username ||
-      `${targetUser.first_name} ${targetUser.last_name}`.trim() ||
-      targetUser.email;
 
     await this.mailService.sendAccessRevoked({
       email: targetUser.email,
-      username: userName,
+      username: targetUser.username,
       propertyName: property.name,
       propertyAddress: property.address,
-      revokedBy: revokerName,
+      revokedBy: revoker.username,
       platformName,
       reason: dto.reason,
     });

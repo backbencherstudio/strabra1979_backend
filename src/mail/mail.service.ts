@@ -86,22 +86,18 @@ export class MailService {
     signupLink: string;
     platformName: string;
   }) {
-    try {
-      await this.queue.add('sendDashboardInvitation', {
-        to: params.email,
-        subject: `${params.inviterName} invited you to a property dashboard`,
-        template: 'dashboard-invite',
-        context: {
-          inviterName: params.inviterName,
-          propertyName: params.propertyName,
-          propertyAddress: params.propertyAddress ?? null,
-          signupLink: params.signupLink,
-          platformName: params.platformName,
-        },
-      });
-    } catch (error) {
-      console.error('sendDashboardInvitation error:', error);
-    }
+    await this.queue.add('sendDashboardInvitation', {
+      to: params.email,
+      subject: `${params.inviterName} invited you to a property dashboard`,
+      template: 'dashboard-invite',
+      context: {
+        inviterName: params.inviterName,
+        propertyName: params.propertyName,
+        propertyAddress: params.propertyAddress ?? null,
+        signupLink: params.signupLink,
+        platformName: params.platformName,
+      },
+    });
   }
 
   async sendWelcomeUser(params: {
