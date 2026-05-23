@@ -65,6 +65,54 @@
       margin: 0 0 24px;
     }
 
+    .steps {
+      background: #f9fafb;
+      border-radius: 8px;
+      padding: 20px;
+      margin: 24px 0;
+    }
+
+    .steps .step {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .steps .step:last-child {
+      margin-bottom: 0;
+    }
+
+    .steps .step-number {
+      background: #111827;
+      color: white;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    .steps .step-content {
+      flex: 1;
+    }
+
+    .steps .step-title {
+      font-weight: 600;
+      color: #111827;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+
+    .steps .step-desc {
+      font-size: 13px;
+      color: #6b7280;
+    }
+
     .property {
       border: 1px solid #e5e7eb;
       border-radius: 8px;
@@ -135,6 +183,20 @@
       word-break: break-all;
     }
 
+    .info-note {
+      background: #fef3c7;
+      border-left: 3px solid #f59e0b;
+      padding: 12px 16px;
+      margin: 24px 0;
+      border-radius: 6px;
+    }
+
+    .info-note p {
+      font-size: 12px;
+      color: #92400e;
+      margin: 0;
+    }
+
     .footer {
       border-top: 1px solid #f3f4f6;
       padding: 20px 32px;
@@ -161,7 +223,7 @@
 
       <div class="content">
         <p>
-          <strong style="color:#111827"><%= inviterName %></strong> has given you access to the following property dashboard. Sign up to view it.
+          <strong style="color:#111827"><%= inviterName %></strong> has given you access to the following property dashboard.
         </p>
 
         <div class="property">
@@ -172,14 +234,47 @@
           <% } %>
         </div>
 
+        <!-- Simple Steps -->
+        <div class="steps">
+          <div class="step">
+            <div class="step-number">1</div>
+            <div class="step-content">
+              <div class="step-title">Click the button below</div>
+              <div class="step-desc">You'll be taken to create your account</div>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-number">2</div>
+            <div class="step-content">
+              <div class="step-title">Complete registration</div>
+              <div class="step-desc">Choose your username and password</div>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-number">3</div>
+            <div class="step-content">
+              <div class="step-title">Access granted automatically</div>
+              <div class="step-desc">Your property dashboard will appear immediately after login</div>
+            </div>
+          </div>
+        </div>
+
         <div class="btn-wrap">
           <a href="<%= signupLink %>" class="btn">Accept & Create Account</a>
         </div>
 
         <p class="expiry">Invitation expires in 7 days</p>
 
+        <!-- Auto-grant explanation -->
+        <div class="info-note">
+          <p>
+            <strong>Good to know:</strong> When you create your account, property access is 
+            automatically granted. No waiting or approval needed for this dashboard!
+          </p>
+        </div>
+
         <div class="link-box">
-          <p>Button not working? Paste this into your browser:</p>
+          <p>Button not working? Copy and paste this link:</p>
           <span><%= signupLink %></span>
         </div>
       </div>

@@ -338,7 +338,12 @@ export class PropertyAccessService {
 
     const granter = await this.prisma.user.findUnique({
       where: { id: granterId },
-      select: { username: true, first_name: true, last_name: true },
+      select: {
+        username: true,
+        first_name: true,
+        last_name: true,
+        email: true,
+      },
     });
 
     const granterName =
@@ -356,22 +361,109 @@ export class PropertyAccessService {
       },
     });
 
-    // ── PATH A: User exists → grant access immediately ────────────────
+    // ── PATH A: User exists ────────────────────────────────
     if (existingUser) {
-      const access = await this.prisma.propertyAccess.upsert({
-        where: { propertyId_userId: { propertyId, userId: existingUser.id } },
-        create: {
+      // Check if user already has active access (not revoked and not expired)
+      const existingAccess = await this.prisma.propertyAccess.findFirst({
+        where: {
+          propertyId,
+          userId: existingUser.id,
+          revokedAt: null,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        },
+      });
+
+      // If access already exists and is active, throw error
+      if (existingAccess) {
+        throw new ConflictException(
+          `User ${existingUser.email} already has access to this dashboard. ${
+            existingAccess.expiresAt
+              ? `Access expires on ${existingAccess.expiresAt.toLocaleDateString()}.`
+              : 'Access does not expire.'
+          }`,
+        );
+      }
+
+      // Check if user has revoked access (can be re-granted)
+      const revokedAccess = await this.prisma.propertyAccess.findFirst({
+        where: {
+          propertyId,
+          userId: existingUser.id,
+          revokedAt: { not: null },
+        },
+      });
+
+      // Generate login link for existing user
+      const loginLink = `${appConfig().app.client_app_url}/login?redirect=/dashboard/${dashboardId}`;
+
+      // If access was revoked, UPDATE the existing record instead of creating new
+      if (revokedAccess) {
+        const updatedAccess = await this.prisma.propertyAccess.update({
+          where: { id: revokedAccess.id },
+          data: {
+            grantedBy: granterId,
+            grantedAt: new Date(),
+            expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+            revokedAt: null,
+            revokedBy: null,
+          },
+        });
+
+        await this.prisma.activityLog.create({
+          data: {
+            category: ActivityCategory.USER_ACCESS,
+            actor_role: existingUser.role,
+            message: `${existingUser.username} was re-granted view access to ${property.name} dashboard (previously revoked)`,
+          },
+        });
+
+        await this.notifications.dashboardShared({
+          userId: existingUser.id,
+          sharedById: granterId,
+          sharerName: granterName,
+          propertyId,
+          propertyName: property.name,
+          dashboardId,
+        });
+
+        // ✅ SEND EMAIL FOR REGRANTED ACCESS using your existing method
+        await this.mailService
+          .sendDashboardInvitation({
+            email: existingUser.email,
+            inviterName: granterName,
+            propertyName: property.name,
+            propertyAddress: property.address,
+            signupLink: loginLink,
+            platformName: platformName,
+          })
+          .catch((error) => {
+            console.error(
+              `Failed to send re-grant email to ${existingUser.email}:`,
+              error,
+            );
+          });
+
+        return {
+          success: true,
+          type: 'existing_user_regranted',
+          message: `Access re-granted to ${existingUser.email}.`,
+          user: {
+            id: existingUser.id,
+            name: existingUser.username,
+            email: existingUser.email,
+            avatar: existingUser.avatar,
+            expiresAt: updatedAccess.expiresAt,
+          },
+        };
+      }
+
+      // No existing access - grant new access
+      const access = await this.prisma.propertyAccess.create({
+        data: {
           propertyId,
           userId: existingUser.id,
           grantedBy: granterId,
           expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
-        },
-        update: {
-          grantedBy: granterId,
-          grantedAt: new Date(),
-          expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
-          revokedAt: null,
-          revokedBy: null,
         },
       });
 
@@ -391,6 +483,23 @@ export class PropertyAccessService {
         propertyName: property.name,
         dashboardId,
       });
+
+      // ✅ SEND EMAIL FOR NEW ACCESS GRANT using your existing method
+      await this.mailService
+        .sendDashboardInvitation({
+          email: existingUser.email,
+          inviterName: granterName,
+          propertyName: property.name,
+          propertyAddress: property.address,
+          signupLink: loginLink,
+          platformName: platformName,
+        })
+        .catch((error) => {
+          console.error(
+            `Failed to send access granted email to ${existingUser.email}:`,
+            error,
+          );
+        });
 
       return {
         success: true,
@@ -417,7 +526,23 @@ export class PropertyAccessService {
 
     const inviteEmail = dto.emailOrUserId.toLowerCase().trim();
 
-    // Upsert pending invitation (reset token if already invited)
+    // Check if there's already a pending invitation for this email
+    const existingInvitation = await this.prisma.pendingInvitation.findFirst({
+      where: {
+        email: inviteEmail,
+        propertyId,
+        acceptedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    if (existingInvitation) {
+      throw new ConflictException(
+        `An invitation has already been sent to ${inviteEmail}. Please ask them to check their email or wait for the invitation to expire.`,
+      );
+    }
+
+    // Upsert pending invitation (reset token if already invited but expired)
     const token = randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
@@ -577,9 +702,8 @@ export class PropertyAccessService {
           propertyId,
           revokedAt: null,
           OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-          // Exclude the PM from the access array — they're shown separately above
           user: {
-            role: { in: [Role.AUTHORIZED_VIEWER, Role.OPERATIONAL] },
+            role: { in: ['AUTHORIZED_VIEWER', 'OPERATIONAL'] },
           },
         },
         include: {
@@ -597,6 +721,29 @@ export class PropertyAccessService {
       }),
     ]);
 
+    // Get granter's role for each access and add isAdminGranted flag
+    const accessListWithAdminFlag = await Promise.all(
+      accessList.map(async (access) => {
+        let grantedByRole = null;
+
+        if (access.grantedBy) {
+          const granter = await this.prisma.user.findUnique({
+            where: { id: access.grantedBy },
+            select: { role: true },
+          });
+          grantedByRole = granter?.role;
+        }
+
+        return {
+          accessId: access.id,
+          grantedAt: access.grantedAt,
+          expiresAt: access.expiresAt ?? null,
+          grantedByRole, // Send the role instead of ID
+          user: access.user,
+        };
+      }),
+    );
+
     return {
       success: true,
       message: 'Access list retrieved successfully',
@@ -606,12 +753,7 @@ export class PropertyAccessService {
         propertyType: property.propertyType,
         dashboardId,
         propertyManager: property.propertyManager ?? null,
-        accessList: accessList.map((a) => ({
-          accessId: a.id,
-          grantedAt: a.grantedAt,
-          expiresAt: a.expiresAt ?? null,
-          user: a.user,
-        })),
+        accessList: accessListWithAdminFlag,
       },
     };
   }

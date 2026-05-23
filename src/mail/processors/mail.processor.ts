@@ -57,41 +57,13 @@ export class MailProcessor extends WorkerHost {
           break;
 
         case 'sendDashboardInvitation':
-          this.logger.log(
-            `Sending dashboard invitation email to ${job.data.to}`,
-          );
-          this.logger.log(`Template: ${job.data.template}`);
-          this.logger.log(
-            `Full context:`,
-            JSON.stringify(job.data.context, null, 2),
-          );
-
-          try {
-            const result = await this.mailerService.sendMail({
-              to: job.data.to,
-              subject: job.data.subject,
-              template: job.data.template,
-              context: job.data.context,
-            });
-            this.logger.log(
-              `Email sent successfully. MessageId: ${result.messageId}`,
-            );
-          } catch (error: any) {
-            this.logger.error(`Failed to send email: ${error.message}`);
-            this.logger.error(`Error stack: ${error.stack}`);
-            this.logger.error(`Error code: ${error.code}`);
-            this.logger.error(`Response: ${error.response}`);
-
-            // Log the template content for debugging
-            const fs = require('fs');
-            const templatePath = 'src/mail/templates/dashboard-invite.ejs';
-            const templateContent = fs.readFileSync(templatePath, 'utf8');
-            this.logger.error(
-              `Template content: ${templateContent.substring(0, 500)}...`,
-            );
-
-            throw error;
-          }
+          this.logger.log('Sending dashboard invitation email');
+          await this.mailerService.sendMail({
+            to: job.data.to,
+            subject: job.data.subject,
+            template: job.data.template,
+            context: job.data.context,
+          });
           break;
 
         case 'sendWelcomeUser':

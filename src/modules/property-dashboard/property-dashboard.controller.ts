@@ -281,7 +281,7 @@ export class PropertyDashboardController {
   // ─── SET ACCESS EXPIRATION ────────────────────────────────────────────────
 
   @Patch('dashboard/:dashboardId/access/expiration')
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.PROPERTY_MANAGER)
   @ApiOperation({
     summary: 'Set or update access expiration date for a user',
     description:
