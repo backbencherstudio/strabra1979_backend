@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { ChangeUserStatusDto } from './dto/change-user-status.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { UserStatus } from 'prisma/generated/enums';
+import { Role, UserStatus } from 'prisma/generated/enums';
 import { UpdateUserRoleDto } from './dto/change-role.dto';
 import { Prisma } from 'prisma/generated/client';
 import appConfig from 'src/config/app.config';
@@ -124,7 +124,45 @@ export class UserManagementService {
   ) {
     const skip = (page - 1) * limit;
 
-    const whereClause: Prisma.PropertyAccessWhereInput = {
+    // First, get the user to check their role
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // ── FOR PROPERTY MANAGERS: Get properties where they are the assigned manager ──
+    let managerProperties: any[] = [];
+    if (user.role === Role.PROPERTY_MANAGER) {
+      const propertyWhereClause: Prisma.PropertyWhereInput = {
+        propertyManagerId: userId,
+        ...(search && {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { address: { contains: search, mode: 'insensitive' } },
+            { propertyType: { contains: search, mode: 'insensitive' } },
+          ],
+        }),
+      };
+
+      managerProperties = await this.prisma.property.findMany({
+        where: propertyWhereClause,
+        select: {
+          id: true,
+          name: true,
+          address: true,
+          propertyType: true,
+          dashboard: { select: { id: true } },
+          updatedAt: true,
+        },
+      });
+    }
+
+    // ── FOR ALL USERS: Get properties from PropertyAccess table ──
+    const accessWhereClause: Prisma.PropertyAccessWhereInput = {
       userId,
       revokedAt: null,
       OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
@@ -139,11 +177,10 @@ export class UserManagementService {
         : undefined,
     };
 
-    const [total, accesses] = await Promise.all([
-      this.prisma.propertyAccess.count({ where: whereClause }),
-
+    const [totalAccess, accesses] = await Promise.all([
+      this.prisma.propertyAccess.count({ where: accessWhereClause }),
       this.prisma.propertyAccess.findMany({
-        where: whereClause,
+        where: accessWhereClause,
         skip,
         take: limit,
         orderBy: { grantedAt: 'desc' },
@@ -164,29 +201,74 @@ export class UserManagementService {
       }),
     ]);
 
+    // ── COMBINE both sources and remove duplicates ──
+    const accessProperties = accesses.map((a) => ({
+      accessId: a.id,
+      grantedAt: a.grantedAt,
+      expiresAt: a.expiresAt,
+      role: a.user.role,
+      source: 'property_access',
+      property: {
+        propertyId: a.property.id,
+        name: a.property.name,
+        address: a.property.address,
+        propertyType: a.property.propertyType,
+        dashboardId: a.property.dashboard?.id ?? null,
+      },
+    }));
+
+    const managerPropertiesFormatted = managerProperties.map((p) => ({
+      accessId: `manager_${p.id}`,
+      grantedAt: p.updatedAt,
+      expiresAt: null,
+      role: Role.PROPERTY_MANAGER,
+      source: 'property_manager_field',
+      property: {
+        propertyId: p.id,
+        name: p.name,
+        address: p.address,
+        propertyType: p.propertyType,
+        dashboardId: p.dashboard?.id ?? null,
+      },
+    }));
+
+    // Combine and remove duplicates (by propertyId)
+    const allPropertiesMap = new Map();
+
+    [...accessProperties, ...managerPropertiesFormatted].forEach((item) => {
+      const propertyId = item.property.propertyId;
+      if (!allPropertiesMap.has(propertyId)) {
+        allPropertiesMap.set(propertyId, item);
+      }
+    });
+
+    let allProperties = Array.from(allPropertiesMap.values());
+
+    // Apply search filter if needed (since we already did in individual queries)
+    if (search) {
+      const searchLower = search.toLowerCase();
+      allProperties = allProperties.filter(
+        (item) =>
+          item.property.name?.toLowerCase().includes(searchLower) ||
+          item.property.address?.toLowerCase().includes(searchLower) ||
+          item.property.propertyType?.toLowerCase().includes(searchLower),
+      );
+    }
+
+    // Apply pagination to combined results
+    const total = allProperties.length;
+    const paginatedProperties = allProperties.slice(skip, skip + limit);
     const totalPages = Math.ceil(total / limit);
 
     return {
       success: true,
       message: 'Assigned properties fetched successfully',
-      data: accesses.map((a) => ({
-        accessId: a.id,
-        grantedAt: a.grantedAt,
-        expiresAt: a.expiresAt,
-        role: a.user.role,
-        property: {
-          propertyId: a.property.id,
-          name: a.property.name,
-          address: a.property.address,
-          propertyType: a.property.propertyType,
-          dashboardId: a.property.dashboard?.id ?? null,
-        },
-      })),
+      data: paginatedProperties,
       meta: {
         total,
         page,
         limit,
-        totalPages: Math.ceil(total / limit),
+        totalPages,
         hasNext: page < totalPages,
         hasPrev: page > 1,
       },
@@ -279,7 +361,7 @@ export class UserManagementService {
         break;
 
       case UserStatus.DELETED:
-          await this.mailService.sendAccountDeleted({
+        await this.mailService.sendAccountDeleted({
           email: user.email,
           username: username,
           deletedBy: adminName,
