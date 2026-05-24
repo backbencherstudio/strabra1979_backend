@@ -636,17 +636,75 @@ export class PropertyAccessService {
 
     if (!targetUser) throw new NotFoundException('User not found.');
 
-    const access = await this.prisma.propertyAccess.findUnique({
-      where: { propertyId_userId: { propertyId, userId: targetUserId } },
+    // Check if user is a Property Manager and is assigned to this property
+    const isPropertyManager = targetUser.role === Role.PROPERTY_MANAGER;
+
+    // Declare propertyWithManager outside the if block
+    let propertyWithManager = null;
+
+    // If Property Manager, first check if they are the assigned manager
+    if (isPropertyManager) {
+      propertyWithManager = await this.prisma.property.findUnique({
+        where: { id: propertyId },
+        select: { propertyManagerId: true },
+      });
+
+      // If they are the assigned manager, remove the propertyManagerId
+      if (propertyWithManager?.propertyManagerId === targetUserId) {
+        await this.prisma.property.update({
+          where: { id: propertyId },
+          data: { propertyManagerId: null },
+        });
+      }
+    }
+
+    // Revoke access from PropertyAccess table
+    const access = await this.prisma.propertyAccess.findFirst({
+      where: {
+        propertyId,
+        userId: targetUserId,
+        revokedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
     });
 
-    if (!access || access.revokedAt)
+    if (!access) {
+      // If no active access found, but user was a Property Manager, that's fine
+      if (
+        isPropertyManager &&
+        propertyWithManager?.propertyManagerId === targetUserId
+      ) {
+        // Already removed propertyManagerId above, just return success
+        await this.prisma.activityLog.create({
+          data: {
+            category: ActivityCategory.USER_ACCESS,
+            actor_role: targetUser.role,
+            message: `${targetUser.username}'s property manager role for ${property.name} dashboard was revoked by ${revoker?.username || revokerId}`,
+          },
+        });
+
+        // Send email notification
+        const platformName = appConfig().app.name ?? 'Platform';
+        await this.mailService.sendAccessRevoked({
+          email: targetUser.email,
+          username: targetUser.username,
+          propertyName: property.name,
+          propertyAddress: property.address,
+          revokedBy: revoker?.username || revoker?.email || 'Admin',
+          platformName,
+          reason: dto.reason,
+        });
+
+        return { message: 'Property Manager access revoked successfully.' };
+      }
+
       throw new NotFoundException(
         'Active access record not found for this user.',
       );
+    }
 
     await this.prisma.propertyAccess.update({
-      where: { propertyId_userId: { propertyId, userId: targetUserId } },
+      where: { id: access.id },
       data: { revokedAt: new Date(), revokedBy: revokerId },
     });
 
@@ -654,7 +712,7 @@ export class PropertyAccessService {
       data: {
         category: ActivityCategory.USER_ACCESS,
         actor_role: targetUser.role,
-        message: `${targetUser.username} access to ${property.name} dashboard was revoked by ${revoker?.username || revokerId}`,
+        message: `${targetUser.username}'s access to ${property.name} dashboard was revoked by ${revoker?.username || revokerId}`,
       },
     });
 
@@ -666,12 +724,12 @@ export class PropertyAccessService {
       username: targetUser.username,
       propertyName: property.name,
       propertyAddress: property.address,
-      revokedBy: revoker.username,
+      revokedBy: revoker?.username || revoker?.email || 'Admin',
       platformName,
       reason: dto.reason,
     });
 
-    return { message: 'Access revoked.' };
+    return { message: 'Access revoked successfully.' };
   }
 
   // ─── GET ACCESS LIST ──────────────────────────────────────────────────────
@@ -703,7 +761,9 @@ export class PropertyAccessService {
           revokedAt: null,
           OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
           user: {
-            role: { in: ['AUTHORIZED_VIEWER', 'OPERATIONAL'] },
+            role: {
+              in: ['AUTHORIZED_VIEWER', 'OPERATIONAL', 'PROPERTY_MANAGER'],
+            },
           },
         },
         include: {
