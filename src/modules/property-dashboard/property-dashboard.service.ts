@@ -887,19 +887,21 @@ export class PropertyDashboardService {
         data: { propertyManagerId: dto.userId },
       });
 
-      this.prisma.propertyAccess.upsert({
+      await this.prisma.propertyAccess.upsert({
         where: { propertyId_userId: { propertyId, userId: dto.userId } },
         create: {
           propertyId,
           userId: dto.userId,
           grantedBy: adminId,
           grantedAt: new Date(),
+          expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
         },
         update: {
           revokedAt: null,
           revokedBy: null,
           grantedBy: adminId,
           grantedAt: new Date(),
+          expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
         },
       });
 
